@@ -37,7 +37,7 @@ Mood AI is a full-stack AI super-app scaffold that delivers Grok-style capabilit
 > or ship the web app on **Netlify** ([docs/NETLIFY-DEPLOY.md](docs/NETLIFY-DEPLOY.md)) and
 > prove it with the **live smoke** ([docs/LIVE-SMOKE.md](docs/LIVE-SMOKE.md)).
 
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/YOUR-USER/mood-ai)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/joesoft3/moodai)
 > custom domain + HTTPS + Stripe Pro in ~45 min.
 
 ---
