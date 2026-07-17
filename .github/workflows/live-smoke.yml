@@ -1,0 +1,43 @@
+# Mood AI — live smoke against a deployed environment (manual trigger).
+#
+# Secrets required (per environment, e.g. "staging"):
+#   SMOKE_BASE_URL     e.g. https://api.staging.example.com
+#   SMOKE_APP_PASSWORD the sign-up gate code (APP_PASSWORD on the server)
+#
+# Run: Actions → "Live smoke" → Run workflow → pick environment.
+name: live-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "API base URL (blank = environment secret SMOKE_BASE_URL)"
+        required: false
+        type: string
+      skip_arena:
+        description: "Skip arena section (server has <2 provider keys)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Live smoke
+        env:
+          BASE_URL: ${{ inputs.base_url || secrets.SMOKE_BASE_URL }}
+          SMOKE_APP_PASSWORD: ${{ secrets.SMOKE_APP_PASSWORD }}
+          SMOKE_ARENA: ${{ inputs.skip_arena && '0' || '1' }}
+        run: |
+          if [ -z "$BASE_URL" ]; then echo "::error::no base URL (input or SMOKE_BASE_URL secret)"; exit 1; fi
+          bash scripts/live-smoke.sh "$BASE_URL" | tee live-smoke.log
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-smoke-report
+          path: live-smoke.log
+          retention-days: 14

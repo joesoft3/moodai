@@ -1,0 +1,199 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: #0b0f14;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* thin scrollbars */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #263243;
+  border-radius: 3px;
+}
+
+/* markdown message styling (no typography plugin needed) */
+.msg p {
+  margin: 0.5em 0;
+}
+.msg ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+  margin: 0.5em 0;
+}
+.msg ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+  margin: 0.5em 0;
+}
+.msg h1,
+.msg h2,
+.msg h3,
+.msg h4 {
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+  color: #fff;
+}
+.msg h1 {
+  font-size: 1.25rem;
+}
+.msg h2 {
+  font-size: 1.15rem;
+}
+.msg h3 {
+  font-size: 1.05rem;
+}
+.msg a {
+  color: #7c9bff;
+  text-decoration: underline;
+}
+.msg code {
+  background: #1a2230;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.88em;
+}
+.msg pre {
+  background: #0f1520;
+  border: 1px solid #1e293b;
+  padding: 0.8rem;
+  border-radius: 0.6rem;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.msg pre code {
+  background: transparent;
+  padding: 0;
+}
+.msg blockquote {
+  border-left: 3px solid #263243;
+  padding-left: 0.8rem;
+  color: #9ca3af;
+  margin: 0.6em 0;
+}
+.msg table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.9em;
+}
+.msg th,
+.msg td {
+  border: 1px solid #263243;
+  padding: 0.3rem 0.6rem;
+}
+.msg th {
+  background: #12181f;
+}
+
+/* voice orb animations */
+@keyframes orb-pulse {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.95;
+  }
+}
+.orb-ring {
+  animation: orb-pulse 2.2s ease-in-out infinite;
+}
+.orb-ring-fast {
+  animation-duration: 1s;
+}
+
+/* utility: hidden scrollbars (e.g. horizontal chip rows) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ---------- fits-every-screen hardening ---------- */
+
+/* App full height that tracks the VISIBLE viewport on mobile:
+   order of fallbacks: JS-synced --app-h (visualViewport, most accurate)
+   → 100dvh → 100vh. Guarantees the bottom tab bar is ON the screen,
+   never below the fold, in every browser. */
+.app-height {
+  height: 100vh; /* last-resort fallback */
+  height: var(--app-h, 100vh);
+}
+@supports (height: 100dvh) {
+  .app-height {
+    height: var(--app-h, 100dvh);
+  }
+}
+
+/* never let content blow out the layout horizontally */
+html,
+body {
+  overflow-x: hidden;
+}
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+/* markdown messages: long URLs, tables and code never overflow the bubble */
+.msg {
+  overflow-wrap: anywhere;
+}
+.msg img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
+.msg table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* composer icon buttons — shrink on very small phones (<380px) */
+.composer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.625rem;
+  flex-shrink: 0;
+}
+@media (max-width: 380px) {
+  .composer-btn {
+    padding: 0.4rem;
+  }
+}
+
+/* short screens / landscape phones: compact vertical spacing + smaller orb */
+@media (max-height: 560px) {
+  .compact-v {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+  .orb-scale {
+    transform: scale(0.72);
+  }
+}
+
+/* very small phones (<340px): hide decorative header/empty-state art */
+@media (max-width: 340px) {
+  .hide-xxs {
+    display: none !important;
+  }
+}

@@ -1,0 +1,28 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Mood AI — Netlify deployment (frontend only; the FastAPI backend runs
+# separately anywhere Docker runs — see docs/DEPLOY-WALKTHROUGH.md).
+#
+# Connect the repo in Netlify and it picks these settings up automatically,
+# or deploy from the CLI:  npx netlify-cli deploy --build --prod
+# ─────────────────────────────────────────────────────────────────────────────
+[build]
+  base = "frontend"                 # Next.js app lives in /frontend
+  command = "npm run build"
+  publish = ".next"                 # Netlify Next.js runtime takes it from here
+
+[build.environment]
+  NEXT_TELEMETRY_DISABLED = "1"
+  NODE_VERSION = "20"
+  # Set in the Netlify UI (Site settings → Environment variables), not here:
+  #   NEXT_PUBLIC_API_URL = https://api.your-domain.com/api/v1
+
+# Official Next.js runtime — App Router, SSR/edge streaming (SSE) supported.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# SPA-ish safety net: unknown paths render the shell (client router handles them).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = false

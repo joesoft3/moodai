@@ -1,0 +1,10 @@
+{
+  "name": "Nova AI",
+  "short_name": "Nova",
+  "description": "Grok-class AI assistant — chat, live search, memory, voice, files and images.",
+  "start_url": "/chat",
+  "display": "standalone",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "icons": [{ "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }]
+}

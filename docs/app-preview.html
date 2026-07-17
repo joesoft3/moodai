@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Mood AI — Interactive App Preview (offline demo)</title>
+<style>
+  :root { --base:#0b0f14; --panel:#12181f; --line:#1e293b; --accent:#7c9bff; }
+  * { margin:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; background:var(--base); color:#e5e7eb; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; overflow:hidden; }
+  .app-height { height:100vh; height:var(--app-h,100dvh); }
+  .shell { display:flex; overflow:hidden; }
+
+  /* ---------- sidebar ---------- */
+  .sidebar { display:none; width:288px; flex-direction:column; background:var(--panel); border-right:1px solid var(--line); flex-shrink:0; }
+  .side-inner { display:flex; flex-direction:column; height:100%; }
+  .brand { padding:16px 20px; border-bottom:1px solid var(--line); font-weight:700; font-size:14.5px; display:flex; gap:8px; align-items:center; flex-shrink:0; }
+  .brand span.star { color:var(--accent); font-size:18px; }
+  .newchat { margin:12px; padding:10px 14px; border:1px solid #7c9bff55; background:#7c9bff22; border-radius:12px; font-size:13px; cursor:pointer; color:#fff; text-align:left; }
+  .newchat:hover { background:#7c9bff33; }
+  .convs { flex:1; overflow-y:auto; padding:0 8px 8px; }
+  .conv { padding:8px 12px; border-radius:9px; font-size:13px; color:#9ca3af; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .conv:hover { background:#ffffff0d; }
+  .conv.on { background:#7c9bff22; color:#fff; }
+  .side-foot { border-top:1px solid var(--line); padding:8px; flex-shrink:0; }
+  .side-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:9px; font-size:13.5px; color:#9ca3af; cursor:pointer; }
+  .side-link:hover { background:#ffffff0d; }
+  .side-link.on { background:#7c9bff22; color:#fff; }
+  .side-link.logout { color:#6b7280; }
+
+  /* ---------- drawer ---------- */
+  .drawer { position:fixed; inset:0; z-index:40; visibility:hidden; transition:visibility .2s; }
+  .drawer.open { visibility:visible; }
+  .drawer .backdrop { position:absolute; inset:0; background:#0009; opacity:0; transition:opacity .2s; }
+  .drawer.open .backdrop { opacity:1; }
+  .drawer .panel { position:absolute; top:0; bottom:0; left:0; width:288px; background:var(--panel); border-right:1px solid var(--line); transform:translateX(-100%); transition:transform .2s; padding-bottom:env(safe-area-inset-bottom); }
+  .drawer.open .panel { transform:translateX(0); }
+
+  /* ---------- main column ---------- */
+  .main { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; position:relative; z-index:0; }
+  .topbar { display:flex; align-items:center; gap:10px; padding:12px; background:#12181f99; border-bottom:1px solid var(--line); flex-shrink:0; padding-top:max(12px, env(safe-area-inset-top)); }
+  .topbar h1 { flex:1; font-size:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .menu-btn { background:none; border:0; color:#d1d5db; font-size:19px; cursor:pointer; padding:6px 10px; touch-action:manipulation; }
+  .badge { font-size:10px; color:var(--accent); border:1px solid #7c9bff44; border-radius:999px; padding:2px 8px; }
+
+  .page { display:none; flex:1; min-height:0; flex-direction:column; }
+  .page.active { display:flex; }
+
+  /* ---------- chat ---------- */
+  .msgs { flex:1; min-height:0; overflow-y:auto; padding:20px 14px; display:flex; flex-direction:column; gap:14px; }
+  .msgs-inner { width:100%; max-width:820px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+  .bub { align-self:flex-end; background:#7c9bff2e; border:1px solid #7c9bff55; padding:10px 15px; border-radius:15px; font-size:13.5px; max-width:85%; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .rep { align-self:flex-start; font-size:13.5px; color:#d1d5db; max-width:90%; line-height:1.6; overflow-wrap:anywhere; }
+  .rep .cite { color:var(--accent); font-size:12px; }
+  .empty { margin:auto; text-align:center; color:#6b7280; font-size:13px; padding:20px; }
+  .empty .star { font-size:44px; display:block; margin-bottom:10px; }
+  .composer { flex-shrink:0; border-top:1px solid var(--line); background:#12181fcc; padding:10px; }
+  .composer-row { max-width:820px; margin:0 auto; display:flex; align-items:flex-end; gap:4px; background:var(--base); border:1px solid var(--line); border-radius:16px; padding:6px 8px; }
+  .composer-row:focus-within { border-color:#7c9bff88; }
+  .cbtn { background:none; border:0; font-size:16px; color:#9ca3af; cursor:pointer; padding:9px; flex-shrink:0; touch-action:manipulation; }
+  .cbtn.on { color:var(--accent); }
+  .cbtn.send { background:var(--accent); color:#000; border-radius:10px; font-weight:700; }
+  .cbtn.send:disabled { opacity:.3; }
+  #chat-input { flex:1; min-width:0; background:transparent; border:0; outline:0; resize:none; color:#e5e7eb; font:inherit; font-size:13.5px; padding:9px 6px; max-height:140px; }
+
+  /* ---------- voice ---------- */
+  .voice-wrap { flex:1; min-height:0; display:flex; flex-direction:column; align-items:center; padding:20px 16px; overflow-y:auto; }
+  .orb-wrap { position:relative; width:230px; height:230px; flex-shrink:0; }
+  .ring { position:absolute; border-radius:50%; background:#7c9bff1a; inset:0; }
+  .ring.r2 { inset:24px; background:#7c9bff26; }
+  .ring.r3 { inset:48px; background:#7c9bff33; }
+  .ring.anim { animation:orb 2.2s ease-in-out infinite; }
+  .ring.anim.fast { animation-duration:1s; }
+  @keyframes orb { 0%,100%{transform:scale(.94);opacity:.5} 50%{transform:scale(1.1);opacity:.95} }
+  .orb { position:absolute; inset:64px; border-radius:50%; border:0; background:var(--accent); color:#000; font-size:26px; cursor:pointer; box-shadow:0 8px 30px #7c9bff33; touch-action:manipulation; }
+  .orb.listening { background:#f87171e6; }
+  .orb.thinking { background:#7c9bff99; }
+  .vlabel { margin-top:18px; font-size:13.5px; color:#9ca3af; }
+  .vturns { width:100%; max-width:640px; margin-top:20px; display:flex; flex-direction:column; gap:12px; }
+
+  /* ---------- images ---------- */
+  .img-wrap { flex:1; min-height:0; overflow-y:auto; padding:18px 14px; }
+  .img-inner { max-width:1000px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
+  .img-bar { display:flex; gap:8px; }
+  .img-bar input { flex:1; min-width:0; background:var(--base); border:1px solid var(--line); border-radius:14px; padding:12px 14px; color:#e5e7eb; font-size:13px; outline:none; }
+  .img-bar input:focus { border-color:#7c9bff88; }
+  .img-bar button { background:var(--accent); color:#000; border:0; border-radius:14px; padding:0 18px; font-weight:600; cursor:pointer; touch-action:manipulation; }
+  .img-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  .tile { aspect-ratio:1; border-radius:14px; border:1px solid var(--line); overflow:hidden; position:relative; font-size:52px; display:flex; align-items:center; justify-content:center; }
+  .tile small { position:absolute; bottom:0; left:0; right:0; font-size:10.5px; color:#d1d5db; background:linear-gradient(transparent,#000c); padding:14px 8px 8px; }
+  .tile.pending { background:linear-gradient(110deg,#12181f 8%,#1a2430 18%,#12181f 33%); background-size:200% 100%; animation:shimmer 1.2s linear infinite; }
+  @keyframes shimmer { to { background-position:-200% 0; } }
+
+  /* ---------- settings ---------- */
+  .set-wrap { flex:1; min-height:0; overflow-y:auto; padding:18px 14px; }
+  .set-grid { max-width:860px; margin:0 auto; display:grid; gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px; display:flex; flex-direction:column; gap:10px; }
+  .card h3 { font-size:13.5px; display:flex; gap:8px; align-items:center; }
+  .card h3 .ic { color:var(--accent); }
+  .card p { font-size:12.5px; color:#9ca3af; line-height:1.55; }
+  .pill { display:inline-block; font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--accent); border:1px solid #7c9bff44; background:#7c9bff14; border-radius:999px; padding:3px 10px; }
+  .btn { align-self:flex-start; background:var(--accent); color:#000; border:0; border-radius:10px; padding:9px 14px; font-size:12.5px; font-weight:600; cursor:pointer; touch-action:manipulation; }
+  .btn.ghost { background:#ffffff0d; border:1px solid var(--line); color:#d1d5db; }
+  .btn.danger { background:#f8717118; border:1px solid #f8717155; color:#f87171; }
+  .mem { display:flex; gap:8px; align-items:flex-start; background:var(--base); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .mem .cat { font-size:9px; text-transform:uppercase; color:#6b7280; border:1px solid var(--line); border-radius:999px; padding:2px 8px; flex-shrink:0; margin-top:2px; }
+  .mem .fact { flex:1; font-size:12.5px; color:#d1d5db; }
+  .mem .del { background:none; border:0; color:#6b7280; cursor:pointer; font-size:14px; padding:2px; }
+  .mem .del:hover { color:#f87171; }
+
+  /* ---------- bottom tab bar ---------- */
+  .tabbar { display:grid; grid-template-columns:repeat(4,1fr); height:56px; background:var(--panel); border-top:1px solid var(--line); flex-shrink:0; }
+  .tabbar-wrap { border-top:1px solid var(--line); background:var(--panel); padding-bottom:env(safe-area-inset-bottom); flex-shrink:0; position:relative; z-index:10; }
+  .tabbar { border-top:0; }
+  .tab { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:10px; color:#6b7280; background:none; border:0; cursor:pointer; touch-action:manipulation; }
+  .tab .ic { font-size:19px; }
+  .tab.on { color:var(--accent); }
+
+  /* ---------- toast ---------- */
+  .toast { position:fixed; left:50%; bottom:80px; transform:translateX(-50%) translateY(20px); background:#1e293b; border:1px solid var(--line); color:#e5e7eb; border-radius:12px; padding:10px 16px; font-size:12.5px; opacity:0; transition:all .25s; pointer-events:none; z-index:60; max-width:90vw; text-align:center; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  /* ---------- breakpoints: tablet (768) / desktop (1024) ---------- */
+  @media (min-width:768px) {
+    .tabbar-wrap { display:none; }
+    .msgs, .img-wrap, .set-wrap, .voice-wrap { padding-left:24px; padding-right:24px; }
+  }
+  @media (min-width:1024px) {
+    .sidebar { display:flex; }
+    .topbar, .menu-btn { display:none; }
+    .drawer { display:none; }
+    .badge { display:none; }
+  }
+  @media (min-width:768px) { .img-grid { grid-template-columns:repeat(3,1fr); } .set-grid { grid-template-columns:1fr 1fr; } .mem-card { grid-column:1/-1; } }
+  @media (min-width:1280px) { .img-grid { grid-template-columns:repeat(4,1fr); } .sidebar { width:320px; } }
+  @media (min-width:1536px) { .img-grid { grid-template-columns:repeat(5,1fr); } .sidebar { width:384px; } }
+  @media (max-width:380px) { .cbtn { padding:7px; } }
+  @media (max-height:560px) { .msgs, .voice-wrap { padding-top:8px; } .orb-wrap { transform:scale(.75); } }
+</style>
+</head>
+<body>
+<div class="shell app-height" id="shell">
+  <!-- persistent sidebar (desktop) -->
+  <aside class="sidebar">
+    <div class="side-inner" id="side-inner-1"></div>
+  </aside>
+
+  <!-- drawer (phone/tablet) -->
+  <div class="drawer" id="drawer">
+    <div class="backdrop" id="backdrop"></div>
+    <div class="panel"><div class="side-inner" id="side-inner-2" style="height:100%"></div></div>
+  </div>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="menu-btn" id="menu-btn" aria-label="Open menu">☰</button>
+      <h1 id="title">Mood Chat</h1>
+      <span class="badge">offline demo</span>
+    </header>
+
+    <!-- CHAT -->
+    <section class="page active" id="page-chat">
+      <div class="msgs" id="msgs"><div class="msgs-inner" id="msgs-inner"></div></div>
+      <div class="composer">
+        <div class="composer-row">
+          <button class="cbtn" title="Attach (demo)">📎</button>
+          <textarea id="chat-input" rows="1" placeholder="Ask Mood anything…"></textarea>
+          <button class="cbtn on" id="search-toggle" title="Live search">🌐</button>
+          <button class="cbtn" id="mic-btn" title="Voice (demo)">🎤</button>
+          <button class="cbtn send" id="send-btn" disabled>↑</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- VOICE -->
+    <section class="page" id="page-voice">
+      <div class="voice-wrap">
+        <div class="orb-wrap">
+          <div class="ring" id="r1"></div>
+          <div class="ring r2" id="r2"></div>
+          <div class="ring r3" id="r3"></div>
+          <button class="orb" id="orb" aria-label="Talk">🎤</button>
+        </div>
+        <p class="vlabel" id="vlabel">Tap the orb to talk</p>
+        <div class="vturns" id="vturns"></div>
+      </div>
+    </section>
+
+    <!-- IMAGES -->
+    <section class="page" id="page-images">
+      <div class="img-wrap"><div class="img-inner">
+        <div class="img-bar">
+          <input id="img-prompt" placeholder="A red panda coding on a laptop, cinematic light…" />
+          <button id="img-gen">Generate</button>
+        </div>
+        <div class="img-grid" id="img-grid"></div>
+      </div></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="page" id="page-settings">
+      <div class="set-wrap"><div class="set-grid">
+        <div class="card">
+          <h3><span class="ic">👤</span> Account</h3>
+          <p class="pill">free plan</p>
+          <p>demo@mood.ai</p>
+          <button class="btn ghost" id="logout-btn">Sign out</button>
+        </div>
+        <div class="card">
+          <h3><span class="ic">💳</span> Subscription</h3>
+          <p>Status: <b style="color:#e5e7eb">inactive</b></p>
+          <button class="btn" id="upgrade-btn">Upgrade to Pro</button>
+        </div>
+        <div class="card mem-card">
+          <h3><span class="ic">🧠</span> What Mood remembers about you (<span id="mem-count">3</span>)</h3>
+          <p>Long-term memories personalize every chat. Delete anything you don't want Mood to know.</p>
+          <button class="btn danger" id="mem-clear">Clear all</button>
+          <div id="mem-list" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+      </div></div>
+    </section>
+
+    <!-- BOTTOM TAB BAR (phones) — in normal flow -->
+    <div class="tabbar-wrap">
+      <nav class="tabbar" id="tabbar"></nav>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  const PAGE_TITLES = { chat: "Mood Chat", voice: "Voice", images: "Image Lab", settings: "Settings" };
+  const NAV = [
+    { id: "chat", label: "Chat", icon: "💬" },
+    { id: "voice", label: "Voice", icon: "🎙" },
+    { id: "images", label: "Images", icon: "🖼" },
+    { id: "settings", label: "Settings", icon: "⚙️" },
+  ];
+  let activePage = "chat";
+
+  /* app-height sync (same trick as the real shell) */
+  const shell = $("#shell");
+  const setH = () => {
+    const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    shell.style.setProperty("--app-h", Math.round(h) + "px");
+  };
+  setH();
+  window.addEventListener("resize", setH);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", setH);
+
+  /* toast */
+  let toastT;
+  function toast(msg) {
+    const t = $("#toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastT);
+    toastT = setTimeout(() => t.classList.remove("show"), 2200);
+  }
+
+  /* navigation */
+  function go(page) {
+    activePage = page;
+    $$(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + page));
+    $("#title").textContent = PAGE_TITLES[page];
+    $$(".tab").forEach((t) => t.classList.toggle("on", t.dataset.page === page));
+    $$(".side-link[data-page]").forEach((l) => l.classList.toggle("on", l.dataset.page === page));
+    closeDrawer();
+  }
+
+  /* tabbar */
+  const tabbar = $("#tabbar");
+  NAV.forEach((n) => {
+    const b = document.createElement("button");
+    b.className = "tab" + (n.id === activePage ? " on" : "");
+    b.dataset.page = n.id;
+    b.innerHTML = '<span class="ic">' + n.icon + '</span><span class="lbl">' + n.label + "</span>";
+    b.addEventListener("click", () => go(n.id));
+    tabbar.appendChild(b);
+  });
+
+  /* sidebar content (rendered into both sidebar + drawer) */
+  const CONVS = ["AI news this week", "Ghana startup ideas", "Explain transformers", "Kumasi trip plan"];
+  function renderSideInner(hostId) {
+    const host = $(hostId);
+    host.innerHTML =
+      '<div class="brand"><span class="star">✦</span> Mood AI</div>' +
+      '<button class="newchat">＋ New chat</button>' +
+      '<div class="convs">' +
+      CONVS.map((c, i) => '<div class="conv' + (i === 0 ? " on" : "") + '">💬 ' + c + "</div>").join("") +
+      "</div>" +
+      '<div class="side-foot">' +
+      NAV.map((n) => '<div class="side-link' + (n.id === activePage ? " on" : "") + '" data-page="' + n.id + '">' + n.icon + "&nbsp;&nbsp;" + n.label + "</div>").join("") +
+      '<div class="side-link logout" id="side-logout-' + hostId.slice(-1) + '">⎋&nbsp;&nbsp;Sign out</div>' +
+      "</div>";
+    $$(".side-link[data-page]", host).forEach((l) => l.addEventListener("click", () => go(l.dataset.page)));
+    $$(".conv", host).forEach((c) => c.addEventListener("click", () => { $$(".conv").forEach(x => x.classList.remove("on")); c.classList.add("on"); toast("Demo: conversation selected"); closeDrawer(); go("chat"); }));
+    $(".newchat", host).addEventListener("click", () => { newChat(); closeDrawer(); go("chat"); });
+    host.querySelector('[id^=side-logout]').addEventListener("click", () => toast("Demo only — sign out works in the live app"));
+  }
+  renderSideInner("#side-inner-1");
+  renderSideInner("#side-inner-2");
+
+  /* drawer */
+  const drawer = $("#drawer");
+  function closeDrawer() { drawer.classList.remove("open"); }
+  $("#menu-btn").addEventListener("click", () => drawer.classList.add("open"));
+  $("#backdrop").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+  /* ---------- chat demo ---------- */
+  const REPLIES = [
+    "Great question! Here's the short version: Mood combines Grok-class chat, live search with citations, long-term memory, file & image analysis and voice — all from one app.\n\n(⚠️ Offline demo — the live app streams real answers from the xAI API.)",
+    "On it. Here's a quick take:\n\n• Point one, delivered with confidence\n• Point two, with a dash of wit\n• Point three, because good things come in threes\n\n(live replies stream token-by-token in the real app) ",
+    "I searched the web (demo mode), and the consensus is: this preview has **no backend** — but the real thing calls xAI Live Search and cites sources like this.",
+  ];
+  let replyIdx = 0;
+  const msgsInner = $("#msgs-inner");
+
+  function scrollChat() { $("#msgs").scrollTop = $("#msgs").scrollHeight; }
+  function emptyState() {
+    msgsInner.innerHTML =
+      '<div class="empty"><span class="star">✦</span><b style="color:#d1d5db">How can I help today?</b><br><br>Ask anything — live web search, file & image analysis, voice, and memory.<div style="margin-top:14px;font-size:11px;color:#4b5563">(this is an offline interactive demo of app-preview.html)</div></div>';
+  }
+  function newChat() { emptyState(); }
+  emptyState();
+
+  function send() {
+    const ta = $("#chat-input");
+    const text = ta.value.trim();
+    if (!text) return;
+    if ($(".empty", msgsInner)) msgsInner.innerHTML = "";
+    ta.value = "";
+    ta.style.height = "auto";
+    $("#send-btn").disabled = true;
+
+    const ub = document.createElement("div");
+    ub.className = "bub";
+    ub.textContent = text;
+    msgsInner.appendChild(ub);
+
+    const rep = document.createElement("div");
+    rep.className = "rep";
+    rep.innerHTML = '<span style="color:#6b7280">▍</span>';
+    msgsInner.appendChild(rep);
+    scrollChat();
+
+    const full = REPLIES[replyIdx++ % REPLIES.length];
+    let i = 0;
+    const type = setInterval(() => {
+      i += 2 + Math.floor(Math.random() * 3);
+      rep.textContent = full.slice(0, i);
+      scrollChat();
+      if (i >= full.length) {
+        clearInterval(type);
+        rep.innerHTML = full.replace(/\n/g, "<br>") + ($("#search-toggle").classList.contains("on") ? '<br><span class="cite">[1] techcrunch.com &nbsp; [2] x.ai &nbsp; [3] arxiv.org</span>' : "");
+        scrollChat();
+      }
+    }, 24);
+  }
+
+  const ta = $("#chat-input");
+  ta.addEventListener("input", () => {
+    $("#send-btn").disabled = !ta.value.trim();
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
+  });
+  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+  $("#send-btn").addEventListener("click", send);
+  $("#search-toggle").addEventListener("click", (e) => e.currentTarget.classList.toggle("on"));
+  $("#mic-btn").addEventListener("click", () => toast("Demo: voice dictation — works live with OPENAI_API_KEY"));
+
+  /* ---------- voice demo ---------- */
+  const orb = $("#orb"), vlabel = $("#vlabel"), vturns = $("#vturns");
+  let phase = "idle", timers = [];
+  function setPhase(p) {
+    phase = p;
+    orb.className = "orb" + (p === "listening" ? " listening" : p === "thinking" ? " thinking" : "");
+    orb.textContent = p === "idle" ? "🎤" : p === "listening" ? "⏹" : p === "thinking" ? "⏳" : "🔊";
+    vlabel.textContent = { idle: "Tap the orb to talk", listening: "Listening… tap to send", thinking: "Mood is thinking…", speaking: "Speaking… tap to stop" }[p];
+    $("#r1").className = "ring" + (p !== "idle" ? " anim" : "");
+    $("#r2").className = "ring r2" + (p === "listening" ? " anim fast" : p === "speaking" ? " anim" : "");
+    $("#r3").className = "ring r3" + (p === "thinking" ? " anim fast" : "");
+  }
+  function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
+  orb.addEventListener("click", () => {
+    timers.forEach(clearTimeout); timers = [];
+    if (phase === "idle") {
+      setPhase("listening");
+      later(() => {
+        setPhase("thinking");
+        later(() => {
+          setPhase("speaking");
+          const t = document.createElement("div");
+          t.innerHTML = '<div class="bub" style="align-self:flex-end;max-width:85%">🎙️ What can you do?</div><div class="rep" style="margin-top:6px">I chat, search the web live, remember you, read files and images, and talk back — this is the simulated voice reply. 🔊</div>';
+          vturns.appendChild(t);
+          later(() => setPhase("idle"), 2600);
+        }, 1400);
+      }, 2200);
+    } else if (phase === "listening") setPhase("idle");
+    else if (phase === "speaking") setPhase("idle");
+  });
+
+  /* ---------- images demo ---------- */
+  const MOCKS = [
+    ["🦊", "linear-gradient(135deg,#f59e0b33,#7c9bff33)"],
+    ["🏙️", "linear-gradient(135deg,#7c9bff44,#22d3ee33)"],
+    ["🌌", "linear-gradient(135deg,#a78bfa44,#f472b633)"],
+    ["🤖", "linear-gradient(135deg,#34d39933,#7c9bff44)"],
+    ["🐉", "linear-gradient(135deg,#ef444433,#f59e0b33)"],
+    ["🏝️", "linear-gradient(135deg,#22d3ee44,#34d39933)"],
+  ];
+  const grid = $("#img-grid");
+  let mockIdx = 0;
+  function addTile(promptText) {
+    const m = MOCKS[mockIdx++ % MOCKS.length];
+    const t = document.createElement("div");
+    t.className = "tile";
+    t.style.background = m[1];
+    t.innerHTML = m[0] + "<small>" + (promptText || "sample generation") + "</small>";
+    grid.prepend(t);
+    return t;
+  }
+  addTile("futuristic city skyline at dusk");
+  addTile("cute robot reading a book");
+  addTile("neon dragon over Accra");
+  function genImage() {
+    const input = $("#img-prompt");
+    const p = input.value.trim();
+    if (!p) return toast("Type a prompt first (demo)");
+    input.value = "";
+    const pending = document.createElement("div");
+    pending.className = "tile pending";
+    grid.prepend(pending);
+    setTimeout(() => {
+      pending.remove();
+      addTile(p);
+      toast("Demo image — live app calls grok-2-image");
+    }, 1500);
+  }
+  $("#img-gen").addEventListener("click", genImage);
+  $("#img-prompt").addEventListener("keydown", (e) => { if (e.key === "Enter") genImage(); });
+
+  /* ---------- settings demo ---------- */
+  const MEMS = [
+    ["profile", "Lives in Accra, Ghana"],
+    ["preference", "Prefers concise answers with code examples"],
+    ["project", "Building an AI app called Mood AI"],
+  ];
+  function renderMems() {
+    const list = $("#mem-list");
+    list.innerHTML = MEMS.map((m, i) => '<div class="mem"><span class="cat">' + m[0] + '</span><span class="fact">' + m[1] + '</span><button class="del" data-i="' + i + '">✕</button></div>').join("") || '<p style="font-size:12.5px;color:#6b7280">Nothing stored — chat for a while first.</p>';
+    $("#mem-count").textContent = MEMS.length;
+    $$(".del", list).forEach((d) => d.addEventListener("click", () => { MEMS.splice(+d.dataset.i, 1); renderMems(); }));
+  }
+  renderMems();
+  $("#mem-clear").addEventListener("click", () => { MEMS.length = 0; renderMems(); toast("All memories cleared (demo)"); });
+  $("#upgrade-btn").addEventListener("click", () => toast("Demo — opens Stripe Checkout in the live app"));
+  $("#logout-btn").addEventListener("click", () => toast("Demo only — sign out works in the live app"));
+})();
+</script>
+</body>
+</html>

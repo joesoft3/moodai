@@ -1,0 +1,28 @@
+# env & secrets
+.env
+*.local
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.pytest_cache/
+
+# node
+node_modules/
+.next/
+
+# runtime data
+storage/
+uploads/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+tsconfig.tsbuildinfo
+
+# flutter
+mobile/.dart_tool/
+mobile/build/

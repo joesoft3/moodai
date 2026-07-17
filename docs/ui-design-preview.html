@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mood AI — Responsive Layout Preview</title>
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  body {
+    background: #070a0e;
+    color: #e5e7eb;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 32px 24px 48px;
+  }
+  h1 { font-size: 22px; }
+  .sub { color: #6b7280; font-size: 13px; margin-top: 6px; }
+  .accent { color: #7c9bff; }
+  .frames { display: flex; flex-wrap: wrap; gap: 32px; margin-top: 28px; align-items: flex-start; }
+  .frame-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .label { font-size: 12px; color: #9ca3af; display: flex; gap: 8px; align-items: center; }
+  .tag { border: 1px solid #1e293b; border-radius: 999px; padding: 2px 10px; font-size: 11px; color: #7c9bff; }
+  .scale { transform-origin: top left; }
+  iframe { border: 1px solid #1e293b; border-radius: 18px; background: #0b0f14; display: block; }
+  .notes { margin-top: 36px; max-width: 760px; color: #9ca3af; font-size: 13px; line-height: 1.7; }
+  .notes b { color: #e5e7eb; }
+  .notes li { margin-left: 18px; }
+</style>
+</head>
+<body>
+  <h1>Mood AI — <span class="accent">responsive app shell</span> preview</h1>
+  <p class="sub">⚠️ Static design mock of the real components (<code>components/AppShell.tsx</code>) — buttons here are visual only and do nothing. For the working app run <code>docker compose up --build</code> and open <code>http://localhost:3000</code>. Each frame below renders the same markup — only the viewport width changes, triggering the breakpoints.</p>
+
+  <div class="frames">
+    <!-- PHONE -->
+    <div class="frame-wrap">
+      <div class="label"><span class="tag">PHONE</span> 390 × 780 · drawer + bottom tab bar</div>
+      <iframe width="390" height="780" title="phone"
+        srcdoc="<!DOCTYPE html><html><head><style>
+          * { margin:0; box-sizing:border-box; font-family:system-ui,sans-serif; }
+          .shell { display:flex; height:100vh; background:#0b0f14; color:#e5e7eb; }
+          .sidebar { display:none; }
+          .topbar { display:flex; align-items:center; gap:10px; padding:12px; background:#12181f99; border-bottom:1px solid #1e293b; font-size:13px; }
+          .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+          .messages { flex:1; padding:16px 14px; display:flex; flex-direction:column; gap:12px; overflow:hidden; }
+          .bubble { align-self:flex-end; background:#7c9bff2e; border:1px solid #7c9bff55; padding:9px 14px; border-radius:14px; font-size:12.5px; max-width:82%; }
+          .reply { font-size:12.5px; color:#d1d5db; max-width:88%; line-height:1.55; }
+          .composer { display:flex; gap:6px; padding:8px; margin:0 10px 8px; background:#0b0f14; border:1px solid #1e293b; border-radius:16px; align-items:center; }
+          .grow { flex:1; font-size:12.5px; color:#4b5563; padding:0 4px; }
+          .chip { border:1px solid #1e293b; border-radius:9px; padding:6px 8px; font-size:12px; color:#9ca3af; }
+          .send { background:#7c9bff; color:#000; border-radius:10px; padding:6px 9px; font-size:13px; }
+          .bottombar { display:grid; grid-template-columns:repeat(4,1fr); background:#12181fe6; border-top:1px solid #1e293b; height:54px; }
+          .tab { display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:9px; color:#6b7280; gap:3px; }
+          .tab.on { color:#7c9bff; }
+          .accent { color:#7c9bff; }
+          .menu { font-size:16px; color:#d1d5db; }
+        </style></head><body>
+        <div class='shell'>
+          <div class='main'>
+            <div class='topbar'><span class='menu'>☰</span><b>Mood Chat</b></div>
+            <div class='messages'>
+              <div class='bubble'>What's new in AI this week?</div>
+              <div class='reply'>Here's what's trending — new frontier benchmarks dropped, Grok rolled out longer memory, and open-weight models closed the gap. <span class='accent'>[1] [2] [3]</span></div>
+              <div class='bubble'>Summarize into 3 bullets</div>
+              <div class='reply'>• Frontier labs are racing on memory<br>• Live search is now table stakes<br>• Open weights keep catching up</div>
+            </div>
+            <div class='composer'><span class='chip'>📎</span><span class='grow'>Ask Mood anything…</span><span class='chip accent'>🌐</span><span class='chip'>🎤</span><span class='send'>↑</span></div>
+            <div class='bottombar'>
+              <div class='tab on'>💬<span>Chat</span></div><div class='tab'>🎙<span>Voice</span></div><div class='tab'>🖼<span>Images</span></div><div class='tab'>⚙️<span>Settings</span></div>
+            </div>
+          </div>
+        </div>
+        </body></html>"></iframe>
+    </div>
+
+    <!-- TABLET -->
+    <div class="frame-wrap">
+      <div class="label"><span class="tag">TABLET</span> 834 × 700 · drawer, no bottom bar (shown at 72%)</div>
+      <div class="scale" style="transform: scale(0.72);">
+        <iframe width="834" height="700" title="tablet"
+        srcdoc="<!DOCTYPE html><html><head><style>
+          * { margin:0; box-sizing:border-box; font-family:system-ui,sans-serif; }
+          .shell { display:flex; height:100vh; background:#0b0f14; color:#e5e7eb; }
+          .sidebar { display:none; }
+          .topbar { display:flex; align-items:center; gap:12px; padding:14px 16px; background:#12181f99; border-bottom:1px solid #1e293b; font-size:14px; }
+          .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+          .messages { flex:1; padding:20px 24px; display:flex; flex-direction:column; gap:14px; overflow:hidden; max-width:760px; width:100%; margin:0 auto; }
+          .bubble { align-self:flex-end; background:#7c9bff2e; border:1px solid #7c9bff55; padding:10px 16px; border-radius:16px; font-size:13.5px; max-width:75%; }
+          .reply { font-size:13.5px; color:#d1d5db; max-width:85%; line-height:1.6; }
+          .composer { display:flex; gap:8px; padding:10px; margin:0 auto 14px; width:min(92%,720px); background:#0b0f14; border:1px solid #1e293b; border-radius:18px; align-items:center; }
+          .grow { flex:1; font-size:13.5px; color:#4b5563; padding:0 6px; }
+          .chip { border:1px solid #1e293b; border-radius:10px; padding:7px 9px; font-size:13px; color:#9ca3af; }
+          .send { background:#7c9bff; color:#000; border-radius:11px; padding:7px 11px; font-size:14px; }
+          .accent { color:#7c9bff; }
+          .menu { font-size:18px; color:#d1d5db; }
+        </style></head><body>
+        <div class='shell'>
+          <div class='main'>
+            <div class='topbar'><span class='menu'>☰</span><b>Mood Chat</b></div>
+            <div class='messages'>
+              <div class='bubble'>What's new in AI this week?</div>
+              <div class='reply'>Here's what's trending — new frontier benchmarks dropped, Grok rolled out longer memory, and open-weight models closed the gap. <span class='accent'>[1] [2] [3]</span></div>
+              <div class='bubble'>Summarize into 3 bullets</div>
+              <div class='reply'>• Frontier labs are racing on memory<br>• Live search is now table stakes<br>• Open weights keep catching up</div>
+              <div class='bubble'>Nice. Draft a tweet about it</div>
+              <div class='reply'>🚀 AI this week: memory is the new context window. Live search is table stakes. Open weights are nipping at the frontier. What a time to be building.</div>
+            </div>
+            <div class='composer'><span class='chip'>📎</span><span class='grow'>Ask Mood anything…</span><span class='chip accent'>🌐</span><span class='chip'>🎤</span><span class='send'>↑</span></div>
+          </div>
+        </div>
+        </body></html>"></iframe>
+      </div>
+    </div>
+
+    <!-- DESKTOP -->
+    <div class="frame-wrap">
+      <div class="label"><span class="tag">DESKTOP</span> 1280 × 700 · persistent sidebar (shown at 62%)</div>
+      <div class="scale" style="transform: scale(0.62);">
+        <iframe width="1280" height="700" title="desktop"
+        srcdoc="<!DOCTYPE html><html><head><style>
+          * { margin:0; box-sizing:border-box; font-family:system-ui,sans-serif; }
+          .shell { display:flex; height:100vh; background:#0b0f14; color:#e5e7eb; }
+          .sidebar { width:290px; background:#12181f; border-right:1px solid #1e293b; display:flex; flex-direction:column; }
+          .sidehead { padding:16px 18px; border-bottom:1px solid #1e293b; font-weight:700; font-size:14.5px; }
+          .navbtn { border:1px solid #7c9bff44; background:#7c9bff22; border-radius:12px; padding:9px 12px; font-size:12.5px; margin:12px; }
+          .hist { padding:7px 12px; border-radius:9px; font-size:13px; color:#9ca3af; margin:0 8px; }
+          .hist.on { background:#7c9bff22; color:#fff; }
+          .section { border-top:1px solid #1e293b; padding:8px; display:flex; flex-direction:column; gap:2px; margin-top:auto; }
+          .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+          .messages { flex:1; padding:24px; display:flex; flex-direction:column; gap:16px; overflow:hidden; max-width:820px; width:100%; margin:0 auto; }
+          .bubble { align-self:flex-end; background:#7c9bff2e; border:1px solid #7c9bff55; padding:11px 18px; border-radius:18px; font-size:14px; max-width:70%; }
+          .reply { font-size:14px; color:#d1d5db; max-width:85%; line-height:1.65; }
+          .composer { display:flex; gap:8px; padding:12px; margin:0 auto 16px; width:min(92%,780px); background:#0b0f14; border:1px solid #1e293b; border-radius:18px; align-items:center; }
+          .grow { flex:1; font-size:14px; color:#4b5563; padding:0 8px; }
+          .chip { border:1px solid #1e293b; border-radius:10px; padding:8px 10px; font-size:13px; color:#9ca3af; }
+          .send { background:#7c9bff; color:#000; border-radius:12px; padding:8px 12px; font-size:14px; }
+          .accent { color:#7c9bff; }
+        </style></head><body>
+        <div class='shell'>
+          <aside class='sidebar'>
+            <div class='sidehead'><span class='accent'>✦</span> Mood AI</div>
+            <div class='navbtn'>+ New chat</div>
+            <div class='hist on'>💬 AI news this week</div>
+            <div class='hist'>💬 Ghana startup ideas</div>
+            <div class='hist'>💬 Explain transformers</div>
+            <div class='hist'>💬 Kumasi trip plan</div>
+            <div class='hist'>💬 FastAPI interview prep</div>
+            <div class='section'>
+              <div class='hist on'>💬&nbsp; Chat</div>
+              <div class='hist'>🎙&nbsp; Voice</div>
+              <div class='hist'>🖼&nbsp; Images</div>
+              <div class='hist'>⚙️&nbsp; Settings</div>
+              <div class='hist'>⎋&nbsp; Sign out</div>
+            </div>
+          </aside>
+          <div class='main'>
+            <div class='messages'>
+              <div class='bubble'>What's new in AI this week?</div>
+              <div class='reply'>Here's what's trending — new frontier benchmarks dropped, Grok rolled out longer memory, and open-weight models closed the gap on proprietary systems. <span class='accent'>[1] [2] [3]</span></div>
+              <div class='bubble'>Summarize into 3 bullets</div>
+              <div class='reply'>• Frontier labs are racing on memory personalization<br>• Live search with citations is now table stakes<br>• Open weights keep catching up — margins shrinking</div>
+              <div class='bubble'>Nice. Draft a tweet about it</div>
+              <div class='reply'>🚀 AI this week: memory is the new context window. Live search is table stakes. Open weights are nipping at the frontier. What a time to be building.</div>
+            </div>
+            <div class='composer'><span class='chip'>📎</span><span class='grow'>Ask Mood anything…</span><span class='chip accent'>🌐</span><span class='chip'>🎤</span><span class='chip'>🖼</span><span class='send'>↑</span></div>
+          </div>
+        </div>
+        </body></html>"></iframe>
+      </div>
+    </div>
+    <!-- TINY PHONE -->
+    <div class="frame-wrap">
+      <div class="label"><span class="tag">TINY PHONE</span> 320 × 640 · compact composer, icon-only tabs</div>
+      <iframe width="320" height="640" title="tiny phone"
+        srcdoc="<!DOCTYPE html><html><head><style>
+          * { margin:0; box-sizing:border-box; font-family:system-ui,sans-serif; }
+          .shell { display:flex; height:100vh; background:#0b0f14; color:#e5e7eb; }
+          .topbar { display:flex; align-items:center; gap:8px; padding:10px; background:#12181f99; border-bottom:1px solid #1e293b; font-size:12px; }
+          .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+          .messages { flex:1; padding:12px 10px; display:flex; flex-direction:column; gap:10px; overflow:hidden; }
+          .bubble { align-self:flex-end; background:#7c9bff2e; border:1px solid #7c9bff55; padding:8px 12px; border-radius:13px; font-size:12px; max-width:85%; }
+          .reply { font-size:12px; color:#d1d5db; max-width:90%; line-height:1.5; overflow-wrap:anywhere; }
+          .composer { display:flex; gap:2px; padding:6px; margin:0 6px 6px; background:#0b0f14; border:1px solid #1e293b; border-radius:14px; align-items:center; }
+          .grow { flex:1; min-width:0; font-size:12px; color:#4b5563; padding:0 2px; }
+          .chip { border:1px solid #1e293b; border-radius:8px; padding:5px 6px; font-size:11px; color:#9ca3af; }
+          .send { background:#7c9bff; color:#000; border-radius:9px; padding:5px 7px; font-size:12px; }
+          .bottombar { display:grid; grid-template-columns:repeat(4,1fr); background:#12181fe6; border-top:1px solid #1e293b; height:52px; }
+          .tab { display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:9px; color:#6b7280; gap:3px; }
+          .tab.on { color:#7c9bff; }
+          .tab span { display:none; } /* <340px: icons only */
+          .accent { color:#7c9bff; }
+          .menu { font-size:15px; color:#d1d5db; }
+        </style></head><body>
+        <div class='shell'>
+          <div class='main'>
+            <div class='topbar'><span class='menu'>☰</span><b>Mood Chat</b></div>
+            <div class='messages'>
+              <div class='bubble'>What's new in AI this week?</div>
+              <div class='reply'>Trends: longer memory, live search everywhere, open weights closing the gap. <span class='accent'>[1] [2]</span></div>
+              <div class='bubble'>3 bullets pls</div>
+              <div class='reply'>• Memory race<br>• Search table stakes<br>• Open weights rising</div>
+            </div>
+            <div class='composer'><span class='chip'>📎</span><span class='grow'>Ask Mood…</span><span class='chip accent'>🌐</span><span class='chip'>🎤</span><span class='send'>↑</span></div>
+            <div class='bottombar'>
+              <div class='tab on'>💬<span>Chat</span></div><div class='tab'>🎙<span>Voice</span></div><div class='tab'>🖼<span>Images</span></div><div class='tab'>⚙️<span>Settings</span></div>
+            </div>
+          </div>
+        </div>
+        </body></html>"></iframe>
+    </div>
+
+    <!-- ULTRAWIDE -->
+    <div class="frame-wrap">
+      <div class="label"><span class="tag">ULTRAWIDE</span> 1920 × 620 · widened sidebar, capped content (shown at 45%)</div>
+      <div class="scale" style="transform: scale(0.45);">
+        <iframe width="1920" height="620" title="ultrawide"
+        srcdoc="<!DOCTYPE html><html><head><style>
+          * { margin:0; box-sizing:border-box; font-family:system-ui,sans-serif; }
+          .shell { display:flex; height:100vh; background:#0b0f14; color:#e5e7eb; }
+          .sidebar { width:370px; background:#12181f; border-right:1px solid #1e293b; display:flex; flex-direction:column; }
+          .sidehead { padding:18px 20px; border-bottom:1px solid #1e293b; font-weight:700; font-size:15px; }
+          .navbtn { border:1px solid #7c9bff44; background:#7c9bff22; border-radius:12px; padding:10px 14px; font-size:13px; margin:14px; }
+          .hist { padding:8px 14px; border-radius:10px; font-size:13.5px; color:#9ca3af; margin:0 10px; }
+          .hist.on { background:#7c9bff22; color:#fff; }
+          .section { border-top:1px solid #1e293b; padding:10px; display:flex; flex-direction:column; gap:2px; margin-top:auto; }
+          .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+          .messages { flex:1; padding:28px; display:flex; flex-direction:column; gap:18px; overflow:hidden; max-width:1050px; width:100%; margin:0 auto; }
+          .bubble { align-self:flex-end; background:#7c9bff2e; border:1px solid #7c9bff55; padding:12px 20px; border-radius:18px; font-size:14.5px; max-width:62%; }
+          .reply { font-size:14.5px; color:#d1d5db; max-width:80%; line-height:1.7; }
+          .composer { display:flex; gap:10px; padding:14px; margin:0 auto 18px; width:min(92%,1000px); background:#0b0f14; border:1px solid #1e293b; border-radius:20px; align-items:center; }
+          .grow { flex:1; font-size:14.5px; color:#4b5563; padding:0 10px; }
+          .chip { border:1px solid #1e293b; border-radius:11px; padding:9px 11px; font-size:14px; color:#9ca3af; }
+          .send { background:#7c9bff; color:#000; border-radius:13px; padding:9px 13px; font-size:15px; }
+          .accent { color:#7c9bff; }
+        </style></head><body>
+        <div class='shell'>
+          <aside class='sidebar'>
+            <div class='sidehead'><span class='accent'>✦</span> Mood AI</div>
+            <div class='navbtn'>+ New chat</div>
+            <div class='hist on'>💬 AI news this week</div>
+            <div class='hist'>💬 Ghana startup ideas</div>
+            <div class='hist'>💬 Explain transformers</div>
+            <div class='hist'>💬 Kumasi trip plan</div>
+            <div class='section'>
+              <div class='hist on'>💬&nbsp; Chat</div>
+              <div class='hist'>🎙&nbsp; Voice</div>
+              <div class='hist'>🖼&nbsp; Images</div>
+              <div class='hist'>⚙️&nbsp; Settings</div>
+            </div>
+          </aside>
+          <div class='main'>
+            <div class='messages'>
+              <div class='bubble'>What's new in AI this week?</div>
+              <div class='reply'>Here's what's trending — new frontier benchmarks dropped, Grok rolled out longer memory, and open-weight models closed the gap. <span class='accent'>[1] [2] [3]</span></div>
+              <div class='bubble'>Summarize into 3 bullets</div>
+              <div class='reply'>• Frontier labs are racing on memory personalization<br>• Live search with citations is now table stakes<br>• Open weights keep catching up — margins shrinking</div>
+            </div>
+            <div class='composer'><span class='chip'>📎</span><span class='grow'>Ask Mood anything…</span><span class='chip accent'>🌐</span><span class='chip'>🎤</span><span class='chip'>🖼</span><span class='send'>↑</span></div>
+          </div>
+        </div>
+        </body></html>"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <b>Breakpoint tiers (<code>tailwind.config.ts</code>):</b>
+    <ul>
+      <li><b>&lt; 380 px (tiny phones)</b> — composer buttons and paddings shrink; bottom-tab labels drop at &lt;340 px leaving clean icons; nothing overflows.</li>
+      <li><b>&lt; 768 px (phone)</b> — top header with hamburger → full slide-over drawer; fixed bottom tab bar; <code>env(safe-area-inset-*)</code> padding; 100dvh layout avoids mobile URL-bar jumps.</li>
+      <li><b>768–1024 px (tablet)</b> — same drawer pattern (wider, 320 px); bottom bar disappears; roomier message column and image grids.</li>
+      <li><b>1024–1536 px (laptop/desktop)</b> — persistent 288–320 px sidebar with history + navigation; content centers in max-width columns.</li>
+      <li><b>1536–1920 px (large monitors)</b> — sidebar widens to 384 px; content widens; image grid 5-up.</li>
+      <li><b>&gt; 1920 px (ultrawide)</b> — content stays centered and capped.</li>
+      <li><b>Short / landscape screens (&lt;560 px height)</b> — vertical spacing compacts and the voice orb scales down automatically.</li>
+    </ul>
+    <p style="margin-top:14px">The live version also includes: a <b>Voice Studio</b> (pulsing orb state machine: idle → listening → thinking → speaking), an <b>Image Lab</b> (2/3/4-column gallery + lightbox), and a <b>Settings</b> page with the personal memory manager. Installable as a PWA via <code>manifest.webmanifest</code>.</p>
+  </div>
+</body>
+</html>

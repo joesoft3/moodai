@@ -1,0 +1,32 @@
+# Edge proxy for Mood AI custom domains (optional — run with `--profile edge`).
+#
+# - The platform's own base domain gets an automatic public cert.
+# - CUSTOM domains (connected/purchased by users) get on-demand TLS: before
+#   issuing a cert, Caddy asks the backend whether the domain is active
+#   (GET /api/v1/domains/allowed?domain=... → 200 active / 403 refuse).
+{
+	email {$ACME_EMAIL:-ops@example.com}
+
+	on_demand_tls {
+		ask http://backend:8000/api/v1/domains/allowed
+		interval 1m
+		burst 10
+	}
+}
+
+# Platform's own base domain (set BASE_DOMAIN in .env, e.g. app.myplatform.com).
+# No block is needed for local dev — use the individual service ports instead.
+{$BASE_DOMAIN:-localhost} {
+	reverse_proxy /api/* backend:8000
+	reverse_proxy * frontend:3000
+}
+
+# Catch-all HTTPS: user custom domains. Hostname-less site → on-demand TLS only,
+# and `ask` above guarantees certs are only issued for ACTIVE verified domains.
+https:// {
+	tls {
+		on_demand
+	}
+	reverse_proxy /api/* backend:8000
+	reverse_proxy * frontend:3000
+}
