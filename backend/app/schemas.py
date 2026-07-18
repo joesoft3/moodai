@@ -175,6 +175,7 @@ class StoryboardRequest(BaseModel):
     subtitles: bool = False
     # User-supplied scenes: 'shot text' or 'shot text || narration line' per line (2-4 entries)
     custom_scenes: list[str] | None = Field(default=None, max_length=4)
+    use_brand: bool = False                                       # ⭐ weave Brand Kit identity in
 
 
 class SocialDraftRequest(BaseModel):

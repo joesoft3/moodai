@@ -48,3 +48,24 @@ the fields to personalize.
 The Flutter app ships the full studio (`design_screen.dart`): kind tabs,
 chips, brand toggle, grid gallery with Share (WhatsApp sheet) for both tiers
 (share_plus), delete, autosynced previews.
+
+## 🖨 Print-shop & social exports (v1.0.0)
+`GET /media/designs/{id}/export?preset=…` → cached 300-DPI PNGs, generated on demand:
+- `a4_bleed` (2480×3508 trim + 3mm bleed, white canvas + 8 crop marks, 300 DPI tag)
+- `a5_bleed` (1748×2480 trim + marks) — matches the Ghana print shops' staples
+- `wa_status` 1080×1920 · `ig_post` 1080×1350 · `ig_square` 1080×1080 (exact crops)
+Preset list: `GET /media/designs/exports`.
+
+## ⭐ Brand app icon (v1.0.0)
+`GET /media/brand/icon?size=192|512` renders a PWA-ready square tile from your Brand
+Kit (primary-color canvas + brand initial in accent) — pure ffmpeg, no model call.
+
+## 🤖 Design agent (v1.0.0)
+The chat/plugin tool `design_create` is a **staged ✋ write action**: the model
+drafts it, you approve it in the Plugin Store inbox, and only then does the
+renderer run — the design lands in your Studio gallery with a how-to card.
+
+## 🎞 Branded films (v1.0.0)
+Storyboard films accept `use_brand: true`: identity colors/style are woven into
+scene planning and your logo is stamped onto the hero-frame poster; the public
+share card says "by *Your Brand* · Directed with Mood AI".

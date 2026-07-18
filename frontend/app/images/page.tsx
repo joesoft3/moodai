@@ -182,6 +182,24 @@ export default function ImagesPage() {
   const [narration, setNarration] = useState("");
   const [music, setMusic] = useState<"soft" | "epic" | "lofi" | "tension">("soft");
   const [tempo, setTempo] = useState(1.0);
+  // ⭐ brand + 📷➡️🎬 image-to-video
+  const [useBrand, setUseBrand] = useState(false);
+  const [hasBrand, setHasBrand] = useState(false);
+  const [i2vOpen, setI2vOpen] = useState(false);
+  const [i2vFile, setI2vFile] = useState<File | null>(null);
+  const [i2vPreview, setI2vPreview] = useState<string>("");
+  const [i2vBusy, setI2vBusy] = useState(false);
+
+  // detect a saved Brand Kit once → reveal the ⭐ brand toggles
+  const brandProbe = useRef(false);
+  useEffect(() => {
+    if (brandProbe.current) return;
+    brandProbe.current = true;
+    apiFetch<{ brand_name: string }>("/media/brand")
+      .then((b) => setHasBrand(Boolean(b.brand_name)))
+      .catch(() => {});
+  }, []);
+
   // 🎬 storyboard options
   const [storyScenes, setStoryScenes] = useState(1);          // 1 = single shot
   const [storySeconds, setStorySeconds] = useState(6);        // per-scene seconds
@@ -327,6 +345,7 @@ export default function ImagesPage() {
             audio: audioMode, voice: voiceId, music, tempo, subtitles,
             dialogue: audioMode !== "none" && dialogue, voice_b: voiceB,
             custom_scenes: useCustom ? sceneLines : null,
+            use_brand: useBrand,
           }),
           signal: ac.signal,
         });
@@ -353,6 +372,39 @@ export default function ImagesPage() {
     } finally {
       clearTimeout(to);
       abortRef.current = null;
+    }
+  }
+
+  async function generateI2V() {
+    const p = prompt.trim();
+    if (!i2vFile || p.length < 3 || i2vBusy) return;
+    setI2vBusy(true);
+    setError("");
+    const fd = new FormData();
+    fd.append("file", i2vFile);
+    fd.append("instruction", p);
+    fd.append("duration", String(duration));
+    fd.append("aspect_ratio", aspect);
+    fd.append("quality", quality);
+    fd.append("style", style);
+    const tmpId = "pending-" + Date.now();
+    setVideos((it) => [{ id: tmpId, url: "", prompt: `📷 ${p}`, pending: true, meta: { duration, aspect_ratio: aspect, quality, style } }, ...it]);
+    try {
+      const res = await apiFetch<{ video_url: string; image_used: boolean; note: string | null }>("/media/videos/i2v", {
+        method: "POST",
+        body: fd,
+      });
+      if (res.note) setInfo(`ℹ️ ${res.note}`);
+      else setInfo("📷➡️🎬 Your image came alive — reference frame animated.");
+      setPrompt("");
+      setI2vFile(null);
+      setI2vPreview("");
+      finishTile(tmpId, `📷 ${p}`, { duration, aspect_ratio: aspect, quality, style, audio: "none" } as ImgItem["meta"], res.video_url);
+    } catch (e: any) {
+      setVideos((it) => it.filter((i) => i.id !== tmpId));
+      setError(e.message ?? "Image-to-video failed");
+    } finally {
+      setI2vBusy(false);
     }
   }
 
@@ -410,6 +462,52 @@ export default function ImagesPage() {
     <AppShell title="Media Lab">
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-6">
         <div className="max-w-5xl 2xl:max-w-7xl mx-auto space-y-6">
+          {/* 📷➡️🎬 Image → Video */}
+          <section className="rounded-xl border border-line bg-white/5 overflow-hidden">
+            <button onClick={() => setI2vOpen((o) => !o)} className="touch-manipulation w-full flex items-center gap-2 px-4 py-3 text-left">
+              <span className="text-base">📷➡️🎬</span>
+              <span className="text-sm font-semibold text-gray-100">Image → Video</span>
+              <span className="text-xs text-gray-500">upload a photo, tell it what to do</span>
+              <ChevronDown size={15} className={`ml-auto text-gray-500 transition-transform ${i2vOpen ? "rotate-180" : ""}`} />
+            </button>
+            {i2vOpen && (
+              <div className="px-4 pb-4 pt-3 border-t border-line space-y-3">
+                <div className="flex items-start gap-3">
+                  <label className="touch-manipulation relative flex h-24 w-24 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-dashed border-line bg-white/5 overflow-hidden hover:border-accent/50 transition">
+                    {i2vPreview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={i2vPreview} alt="reference" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-center text-[10px] text-gray-500 px-2">📷<br />Tap to upload<br />PNG · JPG · WebP · ≤8MB</span>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] ?? null;
+                        setI2vFile(f);
+                        if (i2vPreview) URL.revokeObjectURL(i2vPreview);
+                        setI2vPreview(f ? URL.createObjectURL(f) : "");
+                      }}
+                    />
+                  </label>
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <p className="text-[11px] text-gray-400">
+                      Write your instruction in the prompt box below — e.g. <em>"make the model walk forward, camera slowly pushes in"</em> — then hit <b>🎬 Animate image</b>.
+                    </p>
+                    <button
+                      onClick={generateI2V}
+                      disabled={!i2vFile || prompt.trim().length < 3 || i2vBusy}
+                      className="touch-manipulation flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-[#0b0f14] disabled:opacity-40 hover:brightness-110 transition"
+                    >
+                      {i2vBusy ? <Loader2 size={13} className="animate-spin" /> : "🎬"} Animate image
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
           {/* Mode toggle */}
           <div className="flex gap-2 text-xs">
             {(
@@ -521,6 +619,17 @@ export default function ImagesPage() {
                         </span>
                       )}
                     </div>
+                  )}
+                  {hasBrand && storyScenes > 1 && (
+                    <label className="flex items-center gap-2 text-[11px] text-gray-400 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={useBrand}
+                        onChange={(e) => setUseBrand(e.target.checked)}
+                        className="accent-amber-400"
+                      />
+                      ⭐ Film in my brand — identity colors into scenes, logo stamped on the poster
+                    </label>
                   )}
                   {storyScenes === 1 ? (
                     <textarea

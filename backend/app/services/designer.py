@@ -259,6 +259,179 @@ async def _overlay_brand_logo(web_path: Path, kind: str, brand: dict[str, Any]) 
     return True
 
 
+# ----------------------------------------------------------- 🖨 print packs
+@dataclass(frozen=True)
+class ExportPreset:
+    label: str
+    trim_w: int
+    trim_h: int
+    bleed_px: int        # 0 → social crop, no marks
+    margin: int = 0      # canvas padding around the bleed area (crop-mark band)
+
+
+EXPORT_PRESETS: dict[str, ExportPreset] = {
+    # 3 mm @300 DPI ≈ 35 px bleed; canvas = bleed + 2×margin for crop ticks
+    "a4_bleed": ExportPreset("A4 300-DPI + 3mm bleed & crop marks", 2480, 3508, 35, 55),
+    "a5_bleed": ExportPreset("A5 300-DPI + 3mm bleed & crop marks", 1748, 2480, 35, 45),
+    # Social crops — exact canvases, no bleed
+    "wa_status": ExportPreset("WhatsApp Status 1080×1920", 1080, 1920, 0),
+    "ig_post": ExportPreset("Instagram Portrait 1080×1350", 1080, 1350, 0),
+    "ig_square": ExportPreset("Instagram Square 1080×1080", 1080, 1080, 0),
+}
+
+
+def _crop_marks(tx: int, ty: int, tw: int, th: int, tick: int = 38, gap: int = 8) -> str:
+    """8 L-corner crop-mark drawboxes just OUTSIDE the trim edges (pure string)."""
+    t = 3
+    boxes = [
+        f"drawbox=x={tx - gap - tick}:y={ty}:w={tick}:h={t}:color=black:t=fill",
+        f"drawbox=x={tx}:y={ty - gap - tick}:w={t}:h={tick}:color=black:t=fill",
+        f"drawbox=x={tx + tw + gap}:y={ty}:w={tick}:h={t}:color=black:t=fill",
+        f"drawbox=x={tx + tw - t}:y={ty - gap - tick}:w={t}:h={tick}:color=black:t=fill",
+        f"drawbox=x={tx - gap - tick}:y={ty + th - t}:w={tick}:h={t}:color=black:t=fill",
+        f"drawbox=x={tx}:y={ty + th + gap}:w={t}:h={tick}:color=black:t=fill",
+        f"drawbox=x={tx + tw + gap}:y={ty + th - t}:w={tick}:h={t}:color=black:t=fill",
+        f"drawbox=x={tx + tw - t}:y={ty + th + gap}:w={t}:h={tick}:color=black:t=fill",
+    ]
+    return ",".join(boxes)
+
+
+def export_dims(preset: str) -> dict[str, int]:
+    """bleed/canvas dims for a preset (pure)."""
+    p = EXPORT_PRESETS[preset]
+    bw, bh = p.trim_w + 2 * p.bleed_px, p.trim_h + 2 * p.bleed_px
+    cw, ch = bw + 2 * p.margin, bh + 2 * p.margin
+    return {
+        "trim_w": p.trim_w, "trim_h": p.trim_h,
+        "bleed_w": bw, "bleed_h": bh, "canvas_w": cw, "canvas_h": ch,
+        "trim_x": (cw - p.trim_w) // 2, "trim_y": (ch - p.trim_h) // 2,
+    }
+
+
+def export_filename(design_id: str, preset: str) -> str:
+    return f"{design_id}_x_{preset}.png"
+
+
+def build_export_cmd(src: str, dst: str, preset: str) -> list[str]:
+    """Render a print/social export (pure argv builder).
+
+    Social: cover-scale + center-crop to the exact canvas.
+    Print: cover-scale to bleed size → pad to white canvas → 8 crop-mark
+    drawboxes outside the trim edges → 300 DPI tag."""
+    p = EXPORT_PRESETS.get(preset)
+    if not p:
+        raise DesignError(f"unknown export preset: {preset}")
+    d = export_dims(preset)
+    bw, bh, cw, ch = d["bleed_w"], d["bleed_h"], d["canvas_w"], d["canvas_h"]
+    chain = f"scale={bw}:{bh}:force_original_aspect_ratio=increase:flags=lanczos,crop={bw}:{bh}"
+    if p.margin:
+        chain += f",pad={cw}:{ch}:{(cw - bw) // 2}:{(ch - bh) // 2}:white"
+        chain += "," + _crop_marks(d["trim_x"], d["trim_y"], p.trim_w, p.trim_h)
+    cmd = [ffmpeg_path() or "ffmpeg", "-y", "-i", src, "-vf", chain, "-frames:v", "1"]
+    if p.bleed_px:
+        cmd += ["-dpi", "300"]
+    cmd.append(dst)
+    return cmd
+
+
+async def render_export(src_path: Path, dst_path: Path, preset: str) -> bool:
+    """Make the export PNG; dst cached by route (idempotent). False if no ffmpeg."""
+    if not ffmpeg_path() or not src_path.exists():
+        return False
+    _run(build_export_cmd(str(src_path), str(dst_path), preset))
+    return dst_path.exists()
+
+
+# --------------------------------------------------------- ⭐ brand app icon
+_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/freefont/FreeSansBold.otf",
+)
+_drawtext_cache: float | None = None
+
+
+def brand_font() -> str | None:
+    for f in _FONT_CANDIDATES:
+        if Path(f).exists():
+            return f
+    return None
+
+
+def drawtext_available() -> bool:
+    """ffmpeg drawtext filter + a usable bold font present (cached)."""
+    global _drawtext_cache
+    ff = ffmpeg_path()
+    if not ff or not brand_font():
+        _drawtext_cache = None
+        return False
+    if _drawtext_cache is None:
+        try:
+            out = subprocess.run([ff, "-hide_banner", "-filters"], capture_output=True, text=True, timeout=20)
+            _drawtext_cache = 1.0 if "drawtext" in out.stdout else 0.0
+        except Exception:
+            _drawtext_cache = 0.0
+    return _drawtext_cache == 1.0
+
+
+def build_brand_icon_cmd(size: int, bg_hex: str, letter: str, fg_hex: str, dst: str) -> list[str]:
+    """Square brand tile: solid color canvas + big initial (pure argv builder)."""
+    font = brand_font() or ""
+    fs = int(size * 0.52)
+    vf = (
+        f"drawtext=fontfile={font}:text='{letter[:2].upper()}':fontcolor={fg_hex}:"
+        f"fontsize={fs}:x=(w-text_w)/2:y=(h-text_h)/2-text_h*0.05"
+    )
+    return [
+        ffmpeg_path() or "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"color=c={bg_hex}:s={size}x{size}:d=1",
+        "-vf", vf, "-frames:v", "1", dst,
+    ]
+
+
+def build_brand_tile_cmd(size: int, bg_hex: str, dst: str) -> list[str]:
+    """Fallback when drawtext is missing — the plain brand-color tile."""
+    return [
+        ffmpeg_path() or "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"color=c={bg_hex}:s={size}x{size}:d=1",
+        "-frames:v", "1", dst,
+    ]
+
+
+async def render_brand_icon(size: int, bg_hex: str, letter: str, fg_hex: str, dst_path: Path) -> bool:
+    if not ffmpeg_path():
+        return False
+    if drawtext_available() and letter:
+        _run(build_brand_icon_cmd(size, bg_hex, letter, fg_hex, str(dst_path)))
+    else:
+        _run(build_brand_tile_cmd(size, bg_hex, str(dst_path)))
+    return dst_path.exists()
+
+
+# -------------------------------------------------------- ⭐ film poster stamp
+def build_logo_stamp_cmd(src: str, logo: str, dst: str, stamp_w: int = 120, pad: int = 22) -> list[str]:
+    """Bottom-right corner stamp for film posters (pure argv builder)."""
+    return [
+        ffmpeg_path() or "ffmpeg", "-y",
+        "-i", src, "-i", logo,
+        "-filter_complex", f"[1:v]scale={stamp_w}:-1[st];[0:v][st]overlay=W-w-{pad}:H-h-{pad}",
+        "-frames:v", "1", dst,
+    ]
+
+
+async def stamp_logo_on_image(img_path: Path, logo_file: str, stamp_w: int = 120, pad: int = 22) -> bool:
+    """In-place corner stamp (posters). Skips quietly when logo/ffmpeg missing."""
+    logo_path = Path(settings.MEDIA_DIR) / logo_file
+    if not ffmpeg_path() or not logo_path.exists() or not img_path.exists():
+        return False
+    tmp = img_path.parent / (img_path.stem + "_st" + img_path.suffix)
+    _run(build_logo_stamp_cmd(str(img_path), str(logo_path), str(tmp), stamp_w, pad))
+    if tmp.exists():
+        tmp.replace(img_path)
+        return True
+    return False
+
+
 # ------------------------------------------------------------------ flow
 async def enhance_brief(idea: str, kind: str, style: str, palette: str) -> str:
     """Art-director rewrite of the rough idea; falls back to the raw idea."""

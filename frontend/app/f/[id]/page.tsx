@@ -9,6 +9,7 @@ const API = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1").
 interface ShareFilm {
   id: string;
   title: string;
+  brand_name?: string | null;
   url: string;
   poster: string;
   scenes: number;
@@ -102,6 +103,9 @@ export default async function FilmSharePage({ params }: { params: { id: string }
             {/* Professional CTA band */}
             <div className="rounded-2xl border border-line bg-panel p-5 sm:p-6 flex flex-col sm:flex-row items-center gap-4">
               <p className="text-sm text-gray-400 text-center sm:text-left flex-1">
+                {film.brand_name ? (
+                  <span className="text-amber-300 font-semibold">by {film.brand_name} · </span>
+                ) : null}
                 <span className="text-gray-200 font-semibold">Directed with Mood AI</span> — one prompt, four model
                 brains, a film with studio voice and sound. Make yours free in 30 seconds.
               </p>

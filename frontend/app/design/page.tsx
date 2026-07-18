@@ -67,6 +67,7 @@ const FONT_VIBES = ["classic", "modern", "bold"];
 /* ---------------------------------------------------------------- page */
 export default function DesignPage() {
   const [presets, setPresets] = useState<Presets | null>(null);
+  const [exports, setExports] = useState<{ id: string; label: string }[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [designs, setDesigns] = useState<Design[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
@@ -105,6 +106,7 @@ export default function DesignPage() {
   useEffect(() => {
     apiFetch<Presets>("/media/designs/presets").then(setPresets).catch(() => flash("Could not load presets"));
     apiFetch<{ templates: Template[] }>("/media/designs/templates").then((j) => setTemplates(j.templates)).catch(() => {});
+    apiFetch<{ presets: { id: string; label: string }[] }>("/media/designs/exports").then((j) => setExports(j.presets)).catch(() => {});
     apiFetch<Brand>("/media/brand").then((b) => {
       setBrand(b);
       if (b.brand_name) setBrandOpen(false);
@@ -169,6 +171,33 @@ export default function DesignPage() {
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     } catch (e) {
       flash(e instanceof Error ? e.message : "Download failed");
+    }
+  }
+
+  async function exportPreset(id: string, preset: string, d: Design) {
+    if (!preset) return;
+    try {
+      const blob = await apiFetch<Blob>(`/media/designs/${id}/export?preset=${preset}`);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `mood-${d.kind}-${id.slice(0, 8)}-${preset}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Export failed");
+    }
+  }
+
+  async function brandIcon(size: 192 | 512) {
+    try {
+      const blob = await apiFetch<Blob>(`/media/brand/icon?size=${size}`);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `mood-icon-${size}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Icon failed — save a Brand Kit first");
     }
   }
 
@@ -356,6 +385,14 @@ export default function DesignPage() {
                 className="touch-manipulation flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0b0f14] disabled:opacity-40">
                 {savingBrand ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Save Brand Kit
               </button>
+              {brand.brand_name && brand.color_primary && (
+                <span className="flex items-center gap-2 text-[11px] text-gray-500">
+                  App icon:
+                  <button onClick={() => brandIcon(192)} className="touch-manipulation rounded-lg border border-line px-2 py-1 text-[10px] text-gray-300 hover:border-accent/50">192px</button>
+                  <button onClick={() => brandIcon(512)} className="touch-manipulation rounded-lg border border-line px-2 py-1 text-[10px] text-gray-300 hover:border-accent/50">512px</button>
+                  <span className="text-gray-600">(color tile + initial — PWA-ready)</span>
+                </span>
+              )}
             </div>
           )}
         </section>
@@ -426,6 +463,15 @@ export default function DesignPage() {
                         className="touch-manipulation flex-1 rounded-lg bg-accent/15 border border-accent/40 px-2 py-1.5 text-[10px] font-semibold text-accent hover:bg-accent/25 transition">
                         <Download size={11} className="inline mr-1 -mt-0.5" />Print HD
                       </button>
+                      <select
+                        value=""
+                        onChange={(e) => { exportPreset(d.id, e.target.value, d); e.target.value = ""; }}
+                        title="🖨 Print-shop & social exports"
+                        className="touch-manipulation rounded-lg border border-line bg-panel px-1.5 py-1.5 text-[10px] text-gray-300 outline-none hover:border-accent/50"
+                      >
+                        <option value="" disabled>🖨…</option>
+                        {exports.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                      </select>
                       <button onClick={() => remove(d.id)} title="Delete design"
                         className="touch-manipulation rounded-lg border border-line px-2 py-1.5 text-gray-500 hover:text-red-400 hover:border-red-400/40 transition">
                         <Trash2 size={11} />

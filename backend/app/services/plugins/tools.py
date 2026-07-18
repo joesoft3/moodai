@@ -121,10 +121,26 @@ TOOL_PROVIDER: dict[str, str] = {t["function"]["name"]: p for p, tools in TOOLS_
 
 # Write tools NEVER execute inside the chat loop — they become PendingActions the
 # user must approve in the UI (human-in-the-loop).
-WRITE_TOOLS: set[str] = {"gmail_send_message", "calendar_create_event", "github_create_issue"}
+WRITE_TOOLS: set[str] = {"gmail_send_message", "calendar_create_event", "github_create_issue",
+                  "design_create"}
 
 # Built-in tools: no OAuth connection needed, always offered in plugin mode.
 BUILTIN_TOOLS: list[dict] = [
+    _tool(
+        "design_create",
+        "🎨 Generate a flyer, logo or banner with the Design Studio (AI art direction, "
+        "print-grade 300-DPI output). STAGED: the image is only rendered after the user "
+        "approves the ✋ pending action. Place exact on-image text in 'quotes'.",
+        {
+            "idea": _s("idea", "What to design, with exact headline/CTA text in 'quotes'"),
+            "kind": {"type": "string", "enum": ["flyer", "logo", "banner"],
+                     "description": "flyer = portrait print piece, logo = square mark, banner = wide hero"},
+            "style": {"type": "string", "enum": ["minimal", "bold", "luxury", "playful",
+                                                 "corporate", "retro", "neon"],
+                      "description": "visual style (default minimal)"},
+        },
+        ["idea", "kind"],
+    ),
     _tool(
         "run_python_code",
         "Execute Python code in a sandboxed subprocess and return stdout/stderr. Use for "
@@ -350,6 +366,41 @@ async def execute_tool(db: AsyncSession, user_id: str, name: str, args: dict) ->
             "how_to": "Approved — copy the caption and post it with your film link. "
                       "Auto-posting lands when the X/YouTube connectors ship.",
         }
+    if name == "design_create":
+        # 🎨 Executed on ✋ approval in the Plugin Store inbox.
+        from ...db.models import Design as _Design
+        from ...services import designer as _dzn
+        from ...config import settings as _cfg
+        from ...services.metering import record_usage as _meter
+
+        idea = str(args.get("idea") or "").strip()
+        kind = str(args.get("kind") or "flyer")
+        style = str(args.get("style") or "minimal")
+        if len(idea) < 3:
+            raise PluginError("design_create needs a non-empty idea")
+        if kind not in _dzn.KIND_PRESETS:
+            kind = "flyer"
+        if style not in _dzn.STYLE_PRESETS:
+            style = "minimal"
+        try:
+            out = await _dzn.generate_design(idea, kind, style=style, enhance=True)
+        except _dzn.DesignError as e:
+            raise PluginError(str(e))
+        except Exception as e:
+            raise PluginError(f"Design renderer unavailable: {str(e)[:160]}")
+        row = _Design(
+            id=out["id"], user_id=user_id, kind=kind, idea=idea, brief=out["brief"],
+            prompt=out["prompt"], style=style, palette="auto", transparent=False,
+            width=out["width"], height=out["height"], file=out["file"],
+            print_file=out["print_file"], note=out["note"] or "",
+        )
+        db.add(row)
+        await db.commit()
+        await _meter(user_id, "design", _cfg.MODEL_IMAGE)
+        return {"design_id": out["id"], "kind": kind, "width": out["width"],
+                "height": out["height"],
+                "how_to": "Approved & rendered ✨ Open 🎨 Design Studio → My designs to download "
+                          "the web PNG or the 300-DPI Print HD file."}
     provider = TOOL_PROVIDER.get(name)
     if not provider:
         raise PluginError(f"Unknown tool: {name}")

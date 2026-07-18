@@ -2,18 +2,19 @@
 Cinema Sound (AI voiceover + ambience muxed via ffmpeg), a prompt enhancer
 powered by the fast model, and public serving of the muxed files."""
 
+import base64
 import json
 import os
 import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
-from ...db.models import Film, PendingAction, User
+from ...db.models import BrandKit, Design, Film, PendingAction, User
 from ...db.session import get_db
 from ...schemas import SocialDraftRequest, StoryboardRequest, VideoEnhanceRequest, VideoRequest
 from ...services import film_jobs, soundtrack, storyboard
@@ -34,6 +35,55 @@ style & texture · motion dynamics. Single paragraph, present tense, no preamble
 Include an aspect-agnostic description (framing handled separately)."""
 
 
+_I2V_MIMES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+_I2V_MAX_BYTES = 8 * 1024 * 1024
+
+
+@router.post("/videos/i2v")
+async def image_to_video(
+    request: Request,
+    file: UploadFile = File(...),
+    instruction: str = Form(min_length=3, max_length=1500),
+    duration: int = Form(default=6, ge=5, le=15),
+    aspect_ratio: str = Form(default="16:9"),
+    quality: str = Form(default="720p"),
+    style: str = Form(default="cinematic"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """📷➡️🎬 Upload an image + a text instruction → animated video."""
+    await enforce_rate_limit(f"i2v:{user.id}", 2)
+    cap = PLAN_LIMITS.get(user.plan, PLAN_LIMITS["free"])["video_day"]
+    if cap and await count_today(db, user.id, "video") >= cap:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Daily video limit reached for the {user.plan} plan ({cap}/day). Upgrade for more.",
+        )
+    mime = (file.content_type or "").lower()
+    if mime not in _I2V_MIMES:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                            "Upload a PNG, JPEG or WebP image")
+    raw = await file.read()
+    if not raw or len(raw) > _I2V_MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            f"Image must be ≤ {_I2V_MAX_BYTES // (1024 * 1024)} MB")
+    if aspect_ratio not in ("16:9", "9:16", "1:1"):
+        aspect_ratio = "16:9"
+    opts = VideoOptions(duration=int(duration), aspect_ratio=aspect_ratio,
+                        quality=quality if quality in ("720p", "1080p") else "720p",
+                        style=style if style in STYLE_PRESETS else "cinematic")
+    image = {"url": f"data:{mime};base64,{base64.b64encode(raw).decode()}"}
+    try:
+        url, image_used = await video.generate(instruction.strip(), opts, image=image)
+    except VideoNotConfigured as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
+    except VideoGenerationError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
+    await record_usage(user.id, "video", settings.MODEL_VIDEO)
+    note = None if image_used else "Provider ignored the reference image — generated from your instruction alone."
+    return {"video_url": url, "image_used": image_used, "note": note,
+            "prompt": instruction.strip(), "duration": opts.duration}
+
 @router.post("/videos")
 async def generate_video(
     req: VideoRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
@@ -53,7 +103,7 @@ async def generate_video(
         negative_prompt=req.negative_prompt,
     )
     try:
-        url = await video.generate(req.prompt.strip(), opts)
+        url, _i2v = await video.generate(req.prompt.strip(), opts)
     except VideoNotConfigured as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
     except VideoGenerationError as e:
@@ -238,6 +288,21 @@ async def generate_storyboard_endpoint(
     Quota pre-check blocks over-cap runs before anything is spent; scenes render
     2-wide in parallel; every milestone persists to the films row."""
     await enforce_rate_limit(f"video:{user.id}", 2)
+    brand_logo_file, brand_name, brand_prompt = "", "", ""
+    if req.use_brand:
+        from ...services import designer as _dzn
+        bk = await db.get(BrandKit, user.id)
+        if bk:
+            if bk.logo_design_id:
+                lg = await db.get(Design, bk.logo_design_id)
+                if lg and lg.user_id == user.id and lg.kind == "logo":
+                    brand_logo_file = lg.file
+            brand_name = bk.brand_name
+            brand_prompt = " " + _dzn.brand_hint_text({
+                "brand_name": bk.brand_name, "tagline": bk.tagline,
+                "color_primary": bk.color_primary, "color_secondary": bk.color_secondary,
+                "color_accent": bk.color_accent, "font_vibe": bk.font_vibe,
+            })
     custom = storyboard.parse_custom_scenes(req.custom_scenes or [], req.scene_seconds) if req.custom_scenes else None
     scene_count = len(custom) if custom else req.scenes
     cap = PLAN_LIMITS.get(user.plan, PLAN_LIMITS["free"])["video_day"]
@@ -259,7 +324,8 @@ async def generate_storyboard_endpoint(
     film = Film(
         id=uuid.uuid4().hex,
         user_id=user.id,
-        prompt=req.prompt.strip(),
+        prompt=req.prompt.strip() + brand_prompt,
+        brand_name=brand_name,
         scenes_json=json.dumps(
             [{"shot": sc.shot, "narration": sc.narration} for sc in custom] if custom else []
         ),
@@ -302,6 +368,8 @@ async def generate_storyboard_endpoint(
             "tempo": req.tempo,
             "dialogue": req.dialogue,
             "voice_b": req.voice_b,
+            "brand_logo_file": brand_logo_file,
+            "brand_name": brand_name,
         },
     )
     return {"job": "storyboard", "film": _film_out(film)}
@@ -393,6 +461,7 @@ async def public_film(fid: str, request: Request, db: AsyncSession = Depends(get
         "audio": film.audio,
         "style": film.style,
         "views": film.views,
+        "brand_name": film.brand_name or None,
         "created_at": full["created_at"],
     }
 

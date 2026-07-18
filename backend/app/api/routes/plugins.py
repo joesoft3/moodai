@@ -155,6 +155,7 @@ _TOOL_LABELS: dict[str, tuple[str, str]] = {
     "create_calendar_event": ("📅", "Create calendar event"),
     "create_issue": ("🐙", "Create GitHub issue"),
     "social_post": ("📣", "Post my film"),
+    "design_create": ("🎨", "Create a design"),
 }
 
 

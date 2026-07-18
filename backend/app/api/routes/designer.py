@@ -5,6 +5,8 @@ brand assets: files persist until the owner deletes the row (deletion also
 unlinks both PNG tiers). Downloads are owner-gated; there is no public
 serving of design files (logos/brand assets shouldn't leak by URL guessing)."""
 
+import re
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -184,6 +186,63 @@ async def list_designs(db: AsyncSession = Depends(get_db), user: User = Depends(
         )
     ).scalars().all()
     return {"designs": [_row(d) for d in rows]}
+
+
+@router.get("/designs/{design_id}/export")
+async def export_design(
+    design_id: str,
+    preset: str = Query(default="wa_status"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """🖨 Print-shop / social export — generated on demand, cached next to the design."""
+    if preset not in dzn.EXPORT_PRESETS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"unknown preset — choose one of {sorted(dzn.EXPORT_PRESETS)}")
+    d = await db.get(Design, design_id)
+    if not d or d.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Design not found")
+    dst = Path(settings.MEDIA_DIR) / dzn.export_filename(design_id, preset)
+    if not dst.exists():
+        src = Path(settings.MEDIA_DIR) / (d.print_file or d.file)
+        ok = await dzn.render_export(src, dst, preset)
+        if not ok:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                                "Export renderer unavailable on this host")
+        if not dst.exists():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Source file missing")
+    return FileResponse(dst, media_type="image/png",
+                        filename=f"mood-{d.kind}-{design_id[:8]}-{preset}.png")
+
+
+@router.get("/brand/icon")
+async def brand_icon(
+    size: int = Query(default=512, pattern="^(192|512)$"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """⭐ Download a square app-icon tile from your Brand Kit (192/512)."""
+    b = await db.get(BrandKit, user.id)
+    if not b or not b.color_primary:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            "Save a Brand Kit with a primary color first")
+    letter = (b.brand_name or "M").strip()[:1].upper() or "M"
+    safe = re.sub(r"[^a-zA-Z0-9]", "", user.id)[:32] or "me"
+    dst = Path(settings.MEDIA_DIR) / f"{safe}_icon{size}.png"
+    # deterministic name → regenerates in place; fine if cached
+    ok = await dzn.render_brand_icon(size, b.color_primary, letter, b.color_accent or "#ffffff", dst)
+    if not ok:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "Icon renderer unavailable on this host")
+    return FileResponse(dst, media_type="image/png",
+                        filename=f"mood-icon-{size}.png", background=None)
+
+
+@router.get("/designs/exports")
+async def export_presets(user: User = Depends(get_current_user)):
+    return {"presets": [{"id": k, "label": p.label,
+                         "trim": [p.trim_w, p.trim_h], "bleed_px": p.bleed_px}
+                        for k, p in dzn.EXPORT_PRESETS.items()]}
 
 
 @router.get("/designs/{design_id}/download")

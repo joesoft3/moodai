@@ -169,3 +169,9 @@ Storyboard films can carry **two narrators**: lines alternate Voice A (your chos
 Public share-page views are counted per-film (45-minute per-IP dedup, hashed in-memory — no IP storage) and surface at **Admin → Engagement → 🏆 Top films** (plus a 🎼 music-mood mix chart).
 ## 📣 Social autopilot (`POST /media/films/{id}/social-draft`)
 One-tap post kits: pick X / Threads / YouTube Shorts → the model drafts a ≤240-char caption with your share link, and the request lands as a **✋ staged approval** in `/plugins` — nothing posts without your Approve. Actual posting is staged-only until an X/YouTube connector is added.
+
+## 📷➡️🎬 Image-to-video (v1.0.0)
+`POST /media/videos/i2v` (multipart): image (PNG/JPEG/WebP ≤8MB) + `instruction` +
+duration/aspect/quality/style → reference-frame animation. The full payload sends
+`image: {"url": "data:…"}`; if the provider rejects it, we retry text-only and say
+so in the response (`image_used: false`) — same daily `video` budget as text-to-video.

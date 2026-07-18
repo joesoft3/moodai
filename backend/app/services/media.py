@@ -63,6 +63,21 @@ def compile_prompt(prompt: str, opts: VideoOptions) -> str:
     return f"{prompt.strip()}, {preset}, {qtag}. Avoid: {negative}."
 
 
+def build_video_payload(model: str, compiled: str, opts: "VideoOptions",
+                        image: dict | None = None) -> dict:
+    """Full professional payload; `image={"url": ...}` turns it image-to-video."""
+    p: dict = {
+        "model": model,
+        "prompt": compiled,
+        "duration": opts.duration,
+        "aspect_ratio": opts.aspect_ratio,
+        "resolution": opts.quality,
+    }
+    if image:
+        p["image"] = image
+    return p
+
+
 def _dig_url(data: Any) -> str | None:
     """Tolerantly find a video URL in common response shapes."""
     if not isinstance(data, dict):
@@ -88,31 +103,33 @@ class VideoService:
     def __init__(self) -> None:
         self._http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=60.0))
 
-    async def generate(self, prompt: str, opts: VideoOptions) -> str:
+    async def generate(self, prompt: str, opts: VideoOptions,
+                       image: dict | None = None) -> tuple[str, bool]:
         provider = settings.VIDEO_PROVIDER.lower()
         if provider == "xai":
-            return await self._xai(prompt, opts)
+            return await self._xai(prompt, opts, image=image)
         raise VideoNotConfigured(
             f"VIDEO_PROVIDER={provider} not available yet — supported today: xai. "
             "The seam is services/media.py (Runway/Pika/Luma = one method + one env value)."
         )
 
-    async def _xai(self, prompt: str, opts: VideoOptions) -> str:
+    async def _xai(self, prompt: str, opts: VideoOptions,
+                   image: dict | None = None) -> tuple[str, bool]:
         if not settings.XAI_API_KEY:
             raise VideoNotConfigured("Set XAI_API_KEY for video generation.")
         base = settings.XAI_BASE_URL.rstrip("/")
         headers = {"Authorization": f"Bearer {settings.XAI_API_KEY}", "Content-Type": "application/json"}
         compiled = compile_prompt(prompt, opts)
-        full_payload = {
-            "model": settings.MODEL_VIDEO,
-            "prompt": compiled,
-            "duration": opts.duration,
-            "aspect_ratio": opts.aspect_ratio,
-            "resolution": opts.quality,
-        }
+        full_payload = build_video_payload(settings.MODEL_VIDEO, compiled, opts, image)
         # Send the full professional payload; if the provider rejects extended
         # params, retry lean rather than fail the user's generation.
         r = await self._http.post(f"{base}/videos/generations", headers=headers, json=full_payload)
+        if image and r.status_code in (400, 422):
+            # provider/build rejected the image frame — drop it and tell the caller
+            log.info("video provider rejected image input — falling back to text-only")
+            r = await self._http.post(f"{base}/videos/generations", headers=headers,
+                                      json=build_video_payload(settings.MODEL_VIDEO, compiled, opts))
+            image = None
         if r.status_code == 400 or r.status_code == 422:
             log.info("video provider rejected extended params — retrying lean payload")
             r = await self._http.post(
@@ -127,7 +144,7 @@ class VideoService:
         data = r.json()
 
         if url := _dig_url(data):
-            return url
+            return url, bool(image)
 
         # Async task pattern: poll the request id until the video is ready
         rid = data.get("request_id") or data.get("id") or (data.get("task") or {}).get("id")
@@ -142,7 +159,7 @@ class VideoService:
                 continue  # transient — keep polling until the deadline
             payload = g.json()
             if url := _dig_url(payload):
-                return url
+                return url, bool(image)
             status = str(payload.get("status", "")).lower()
             if status in ("failed", "error", "cancelled"):
                 raise VideoGenerationError(f"Video generation {status}: {str(payload)[:200]}")

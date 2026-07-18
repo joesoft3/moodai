@@ -295,7 +295,7 @@ async def generate_storyboard(
 
     async def _render(i: int, shot: str) -> tuple[int, str]:
         async with sem:
-            url = await video.generate(shot, scene_opts)
+            url, _i2v = await video.generate(shot, scene_opts)
             progress["done"] += 1
             if on_scene:
                 on_scene(progress["done"], scene_count)

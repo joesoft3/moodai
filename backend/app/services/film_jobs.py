@@ -83,6 +83,19 @@ async def _run(film_id: str, kw: dict) -> None:
         )
         if result:
             outcome_audio = result.mode
+            # ⭐ Brand Kit: stamp the saved logo onto the hero-frame poster
+            if kw.get("brand_logo_file") and result.poster:
+                try:
+                    from pathlib import Path as _Path
+                    from ..config import settings as _cfg
+                    from . import designer as _dzn
+                    branded = await _dzn.stamp_logo_on_image(
+                        _Path(_cfg.MEDIA_DIR) / result.poster, kw["brand_logo_file"]
+                    )
+                    if branded:
+                        log.info("film %s poster branded with kit logo", film_id[:8])
+                except Exception as e:  # never fail a finished film over branding
+                    log.info("poster brand stamp skipped: %s", e)
             await _set(
                 film_id,
                 {
@@ -95,6 +108,7 @@ async def _run(film_id: str, kw: dict) -> None:
                     "script": " / ".join(s.narration for s in result.scenes if s.narration.strip()),
                     "note": note or "",
                     "progress": kw["scene_count"],
+                    "brand_name": kw.get("brand_name", "") or "",
                 },
             )
         else:  # stitch failed → fall back to scene 1 (a finished clip)

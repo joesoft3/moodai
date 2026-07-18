@@ -279,6 +279,7 @@ class Film(Base):
     filename: Mapped[str] = mapped_column(String(40), default="")
     poster: Mapped[str] = mapped_column(String(44), default="")        # <uuid>_p.jpg hero frame
     views: Mapped[int] = mapped_column(Integer, default=0)             # 👁 public share-page opens
+    brand_name: Mapped[str] = mapped_column(String(80), default="")    # ⭐ brand woven in (v1.0.0)
     fallback_url: Mapped[str] = mapped_column(String(600), default="")
     script: Mapped[str] = mapped_column(Text, default="")
     note: Mapped[str] = mapped_column(Text, default="")
