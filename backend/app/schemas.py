@@ -194,3 +194,17 @@ class DesignRequest(BaseModel):
     palette: str = Field(default="auto", max_length=16)
     transparent: bool = False                                 # logos: transparent bg (gpt-image native)
     enhance: bool = True                                      # art-director brief rewrite
+    use_brand: bool = False                                  # weave saved Brand Kit in
+
+
+_HEX = r"^(#[0-9a-fA-F]{6})?$"
+
+
+class BrandKitRequest(BaseModel):
+    brand_name: str = Field(default="", max_length=120)
+    tagline: str = Field(default="", max_length=200)
+    color_primary: str = Field(default="", pattern=_HEX)
+    color_secondary: str = Field(default="", pattern=_HEX)
+    color_accent: str = Field(default="", pattern=_HEX)
+    font_vibe: str = Field(default="modern", pattern="^(classic|modern|bold)$")
+    logo_design_id: str = Field(default="", max_length=36)

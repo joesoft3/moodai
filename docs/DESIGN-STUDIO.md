@@ -28,3 +28,23 @@ The studio turns a one-line idea into a print-ready PNG in ~30 seconds:
 delete them — a logo is a keepsake. They are never publicly served.
 
 **Limits:** free 5/day · pro 60/day (`design_day` plan cap), 4/min burst.
+
+## 🧑‍💼 Brand Kit (v0.9.0)
+`PUT/GET /media/brand` stores one identity per user (name, tagline, 3 colors,
+font vibe, brand logo = one of your logo designs). With `use_brand: true`,
+generation weaves the identity into the art-director brief **and** ffmpeg
+composites your saved logo bottom-right (16% canvas width, padded) onto the
+web tier — the 300-DPI print tier is then upscaled *from the branded frame*,
+so both tiers carry your logo. Logo-kind generations skip compositing (they
+*are* the logo) but still honor the colors/fonts.
+
+## ✈️ Starter templates (v0.9.0)
+`GET /media/designs/templates` — 10 Ghana-flavored briefs (chop bar, salon,
+church program, waakye Friday, real estate, momo agent, thrift pop-up, gym,
+DJ night, provisions logo). Each presets kind+style+palette; `[brackets]` mark
+the fields to personalize.
+
+## 📱 Mobile (v0.9.0)
+The Flutter app ships the full studio (`design_screen.dart`): kind tabs,
+chips, brand toggle, grid gallery with Share (WhatsApp sheet) for both tiers
+(share_plus), delete, autosynced previews.

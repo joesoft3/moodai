@@ -8,6 +8,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import 'design_screen.dart';
 import 'films_screen.dart';
 
 import 'api.dart';
@@ -706,6 +707,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 onTap: () {
                   Navigator.of(context).maybePop();
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FilmsScreen()));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.palette_outlined, size: 18),
+                title: const Text('Design Studio', style: TextStyle(fontSize: 14)),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DesignScreen()));
                 },
               ),
               ListTile(

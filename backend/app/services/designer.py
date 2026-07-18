@@ -92,6 +92,42 @@ PALETTES: dict[str, str] = {
     "candy":   "pink, mint and lavender candy colors",
 }
 
+# ------------------------------------------------------------ ✈️ templates
+# Ghana-flavored starter briefs — [brackets] mark the spots to personalize.
+DESIGN_TEMPLATES: list[dict[str, str]] = [
+    {"id": "chop_bar", "emoji": "🍲", "label": "Chop Bar", "kind": "flyer",
+     "style": "bold", "palette": "sunset",
+     "idea": "Grand opening flyer for [Chop Bar Name], [Area] — fufu, jollof & grilled tilapia from [GH¢ price]. Open daily [hours]. Tell them [Owner] sent you!"},
+    {"id": "salon", "emoji": "💇🏾‍♀️", "label": "Hair & Beauty Salon", "kind": "flyer",
+     "style": "luxury", "palette": "gold",
+     "idea": "Flyer for [Salon Name] — braids, knotless & silk press queen. Walk-ins at [Location]. Book [Phone]. Special: [Offer]"},
+    {"id": "church", "emoji": "⛪", "label": "Church Program", "kind": "flyer",
+     "style": "corporate", "palette": "ocean",
+     "idea": "Sunday service flyer for [Church Name] — '[Theme of the Week]'. [Day] at [Time], [Venue]. Speaker: [Pastor Name]. All are welcome."},
+    {"id": "waakye", "emoji": "🍚", "label": "Waakye Friday", "kind": "flyer",
+     "style": "playful", "palette": "forest",
+     "idea": "Waakye Friday special at [Spot Name]! Hot waakye + wele + egg + gari from [GH¢]. [Time] sharp at [Junction/Street]. Delivery: [Phone]"},
+    {"id": "real_estate", "emoji": "🏠", "label": "Real Estate Open House", "kind": "flyer",
+     "style": "luxury", "palette": "noir",
+     "idea": "Open house flyer — [3-bed house] at [East Legon/Oyarifa]. $[Price] negotiable. Viewing [Date] [Time]. Agent: [Name], [Phone]. 'Own your piece of Accra.'"},
+    {"id": "momo", "emoji": "📱", "label": "Mobile Money Agent", "kind": "banner",
+     "style": "bold", "palette": "gold",
+     "idea": "Shopfront banner for [Agent Name] Mobile Money — MTN, Telecel & AT cash in/out. Fast & secure at [Location]. Charges from [x]%"},
+    {"id": "thrift", "emoji": "👗", "label": "Fashion Pop-up", "kind": "flyer",
+     "style": "retro", "palette": "candy",
+     "idea": "Pop-up sale flyer — '[Brand]' thrift & vintage drop. [Date], [Venue], [Time]. Items from [GH¢]. First 20 shoppers get [freebie]."},
+    {"id": "gym", "emoji": "💪🏾", "label": "Gym & Fitness", "kind": "flyer",
+     "style": "bold", "palette": "noir",
+     "idea": "Membership drive flyer for [Gym Name] — '[Tagline]'. Join for [GH¢/month]: weights, cardio, aerobics [days]. [Location]. Trainer: [Name]."},
+    {"id": "nightlife", "emoji": "🎧", "label": "DJ & Nightlife", "kind": "flyer",
+     "style": "neon", "palette": "noir",
+     "idea": "Event flyer — '[Party Name]' with DJ [Name]. [Date] at [Club], doors [Time]. Entry [GH¢] / VIP [GH¢]. Afrobeat · Amapiano · Hiplife all night."},
+    {"id": "provisions", "emoji": "🛒", "label": "Provisions Shop", "kind": "logo",
+     "style": "minimal", "palette": "forest",
+     "idea": "Friendly round shop mark for '[Shop Name] Provisions' — basket & sunrise motif, trustworthy neighborhood store since [Year]."},
+]
+
+
 BRIEF_PROMPT = """You are an award-winning print art director.
 Rewrite the client's rough idea into ONE dense, production-ready {kind} design brief covering:
 exact headline text (quote it) & any sub-line/CTA text · layout & visual hierarchy ({hint}) ·
@@ -174,6 +210,55 @@ async def _fetch_image_bytes(url_or_data: str) -> bytes:
         return r.content
 
 
+# ------------------------------------------------------------------ brand
+def brand_hint_text(brand: dict[str, Any] | None) -> str:
+    """Weave saved brand identity (name, colors, font vibe, tagline) into the brief."""
+    if not brand:
+        return ""
+    bits = []
+    if brand.get("brand_name"):
+        bits.append(f"brand '{brand['brand_name']}'")
+    colors = [c for c in (brand.get("color_primary"), brand.get("color_secondary"), brand.get("color_accent")) if c]
+    if colors:
+        bits.append("brand colors " + ", ".join(colors))
+    if brand.get("font_vibe"):
+        bits.append(f"{brand['font_vibe']} typography voice")
+    if brand.get("tagline"):
+        bits.append(f"include tagline '{brand['tagline']}'")
+    return ("Brand identity: " + "; ".join(bits) + ".") if bits else ""
+
+
+def build_brand_overlay_cmd(bg: str, logo: str, dst: str, kind: str,
+                            logo_fraction: float = 0.16, pad: int = 26) -> list[str]:
+    """Composite the brand logo onto the rendered design (pure argv builder).
+
+    Logos stay classy: quietly bottom-right on flyers/banners. `logo_fraction`
+    is the logo width as a fraction of canvas width; scale height keeps aspect."""
+    kp = KIND_PRESETS.get(kind, KIND_PRESETS["flyer"])
+    lw = max(48, int(kp.web_w * logo_fraction))
+    return [
+        ffmpeg_path() or "ffmpeg", "-y",
+        "-i", bg, "-i", logo,
+        "-filter_complex",
+        f"[1:v]scale={lw}:-1[logo];[0:v][logo]overlay=W-w-{pad}:H-h-{pad}",
+        "-frames:v", "1", dst,
+    ]
+
+
+async def _overlay_brand_logo(web_path: Path, kind: str, brand: dict[str, Any]) -> bool:
+    """Best-effort: composite the saved brand logo bottom-right (in-place)."""
+    logo_file = brand.get("logo_file") or ""
+    if not logo_file:
+        return False
+    logo_path = Path(settings.MEDIA_DIR) / logo_file
+    if not logo_path.exists():
+        return False
+    tmp = web_path.parent / (web_path.stem + "_ob.png")
+    _run(build_brand_overlay_cmd(str(web_path), str(logo_path), str(tmp), kind))
+    tmp.replace(web_path)
+    return True
+
+
 # ------------------------------------------------------------------ flow
 async def enhance_brief(idea: str, kind: str, style: str, palette: str) -> str:
     """Art-director rewrite of the rough idea; falls back to the raw idea."""
@@ -201,6 +286,7 @@ async def generate_design(
     palette: str = "auto",
     transparent: bool = False,
     enhance: bool = True,
+    brand: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Full pipeline → {file, print_file, width, height, prompt} (paths relative to MEDIA_DIR)."""
     if kind not in KIND_PRESETS:
@@ -209,6 +295,9 @@ async def generate_design(
 
     brief = await enhance_brief(idea, kind, style, palette) if enhance else idea.strip()
     prompt = compile_design_prompt(brief, kind, style, palette, transparent)
+    hint = brand_hint_text(brand)
+    if hint:
+        prompt = f"{prompt} {hint}"
 
     kw = provider_image_kwargs(settings.MODEL_IMAGE, kind, transparent)
     url_or_data = await llm.generate_image(prompt, **kw)
@@ -229,8 +318,11 @@ async def generate_design(
     raw_path.write_bytes(raw)
 
     note = None
+    branded = False
     if ffmpeg_path():
         _run(build_normalize_cmd(str(raw_path), str(web_path), kp.web_w, kp.web_h))
+        if brand and kind != "logo" and brand.get("logo_file"):
+            branded = await _overlay_brand_logo(web_path, kind, brand)
         _run(build_upscale_cmd(str(web_path), str(print_path), kp.print_w, kp.print_h))
         width, height = kp.web_w, kp.web_h
     else:
@@ -251,4 +343,5 @@ async def generate_design(
         "brief": brief,
         "note": note,
         "native": bool(kw),
+        "branded": branded,
     }

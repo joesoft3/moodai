@@ -309,3 +309,22 @@ class Design(Base):
     print_file: Mapped[str] = mapped_column(String(44), default="")  # 300-DPI print png
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BrandKit(Base):
+    """🧑‍💼 One-per-user brand identity — woven into Design Studio generations.
+
+    logo_design_id points at a Design row (kind=logo) whose web-tier PNG is
+    composited onto flyers/banners post-render (designer._overlay_brand_logo)."""
+
+    __tablename__ = "brand_kits"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    brand_name: Mapped[str] = mapped_column(String(120), default="")
+    tagline: Mapped[str] = mapped_column(String(200), default="")
+    color_primary: Mapped[str] = mapped_column(String(9), default="")     # #rrggbb
+    color_secondary: Mapped[str] = mapped_column(String(9), default="")
+    color_accent: Mapped[str] = mapped_column(String(9), default="")
+    font_vibe: Mapped[str] = mapped_column(String(16), default="modern")  # classic|modern|bold
+    logo_design_id: Mapped[str] = mapped_column(String(36), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

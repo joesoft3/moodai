@@ -3,13 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Brush,
-  RectangleHorizontal,
+  Check,
+  ChevronDown,
   Download,
   Frame,
   Image as ImageIcon,
   Loader2,
   Palette,
+  RectangleHorizontal,
+  Save,
   Sparkles,
+  Star,
   Trash2,
   Wand2,
 } from "lucide-react";
@@ -35,6 +39,18 @@ interface Presets {
   styles: { id: string; hint: string }[];
   palettes: { id: string; hint: string }[];
 }
+interface Template {
+  id: string; emoji: string; label: string; kind: string; style: string; palette: string; idea: string;
+}
+interface Brand {
+  brand_name: string; tagline: string;
+  color_primary: string; color_secondary: string; color_accent: string;
+  font_vibe: string; logo_design_id: string; has_logo: boolean;
+}
+const EMPTY_BRAND: Brand = {
+  brand_name: "", tagline: "", color_primary: "", color_secondary: "", color_accent: "",
+  font_vibe: "modern", logo_design_id: "", has_logo: false,
+};
 
 const KIND_ICONS = { flyer: Frame, logo: Brush, banner: RectangleHorizontal } as const;
 const PALETTE_SWATCH: Record<string, string> = {
@@ -46,10 +62,12 @@ const PALETTE_SWATCH: Record<string, string> = {
   gold: "linear-gradient(135deg,#0a0a0a 40%,#d4af37)",
   candy: "linear-gradient(135deg,#ffb3d9,#b3ffd9,#d9b3ff)",
 };
+const FONT_VIBES = ["classic", "modern", "bold"];
 
 /* ---------------------------------------------------------------- page */
 export default function DesignPage() {
   const [presets, setPresets] = useState<Presets | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [designs, setDesigns] = useState<Design[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [kind, setKind] = useState<"flyer" | "logo" | "banner">("flyer");
@@ -58,14 +76,15 @@ export default function DesignPage() {
   const [palette, setPalette] = useState("auto");
   const [transparent, setTransparent] = useState(false);
   const [enhance, setEnhance] = useState(true);
+  const [brand, setBrand] = useState<Brand>(EMPTY_BRAND);
+  const [brandOpen, setBrandOpen] = useState(false);
+  const [useBrand, setUseBrand] = useState(false);
+  const [savingBrand, setSavingBrand] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const urlCache = useRef<Record<string, string>>({});
 
-  const flash = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 4000);
-  };
+  const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 4500); };
 
   const thumbFor = useCallback(async (id: string) => {
     if (urlCache.current[id]) return;
@@ -74,9 +93,7 @@ export default function DesignPage() {
       const u = URL.createObjectURL(blob);
       urlCache.current[id] = u;
       setThumbs((t) => ({ ...t, [id]: u }));
-    } catch {
-      /* file may be gone; leave blank */
-    }
+    } catch { /* file may be gone */ }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -87,10 +104,37 @@ export default function DesignPage() {
 
   useEffect(() => {
     apiFetch<Presets>("/media/designs/presets").then(setPresets).catch(() => flash("Could not load presets"));
+    apiFetch<{ templates: Template[] }>("/media/designs/templates").then((j) => setTemplates(j.templates)).catch(() => {});
+    apiFetch<Brand>("/media/brand").then((b) => {
+      setBrand(b);
+      if (b.brand_name) setBrandOpen(false);
+    }).catch(() => {});
     refresh().catch(() => {});
     const cache = urlCache.current;
     return () => Object.values(cache).forEach((u) => URL.revokeObjectURL(u));
   }, [refresh]);
+
+  function loadTemplate(t: Template) {
+    setKind(t.kind as typeof kind);
+    setStyle(t.style);
+    setPalette(t.palette);
+    setIdea(t.idea);
+    flash(`${t.emoji} ${t.label} loaded — edit the [brackets], then Generate.`);
+    window.scrollTo({ top: 200, behavior: "smooth" });
+  }
+
+  async function saveBrand() {
+    setSavingBrand(true);
+    try {
+      const b = await apiFetch<Brand>("/media/brand", { method: "PUT", body: JSON.stringify(brand) });
+      setBrand(b);
+      flash("⭐ Brand Kit saved — toggle 'Use my brand' on any design.");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSavingBrand(false);
+    }
+  }
 
   async function generate() {
     if (idea.trim().length < 3 || busy) return;
@@ -98,7 +142,11 @@ export default function DesignPage() {
     try {
       const d = await apiFetch<Design>("/media/designs", {
         method: "POST",
-        body: JSON.stringify({ idea: idea.trim(), kind, style, palette, transparent: kind === "logo" && transparent, enhance }),
+        body: JSON.stringify({
+          idea: idea.trim(), kind, style, palette,
+          transparent: kind === "logo" && transparent, enhance,
+          use_brand: useBrand,
+        }),
       });
       setDesigns((ds) => [d, ...ds]);
       thumbFor(d.id);
@@ -130,17 +178,15 @@ export default function DesignPage() {
       setDesigns((ds) => ds.filter((d) => d.id !== id));
       if (urlCache.current[id]) URL.revokeObjectURL(urlCache.current[id]);
       delete urlCache.current[id];
-      setThumbs((t) => {
-        const n = { ...t };
-        delete n[id];
-        return n;
-      });
+      setThumbs((t) => { const n = { ...t }; delete n[id]; return n; });
+      if (brand.logo_design_id === id) setBrand((b) => ({ ...b, logo_design_id: "" }));
     } catch (e) {
       flash(e instanceof Error ? e.message : "Delete failed");
     }
   }
 
   const kp = presets?.kinds.find((k) => k.id === kind);
+  const logos = designs.filter((d) => d.kind === "logo");
 
   return (
     <AppShell title="Design Studio">
@@ -152,6 +198,26 @@ export default function DesignPage() {
             <p className="text-xs text-gray-400">Flyers, logos & banners — AI art direction + print-grade 300 DPI output</p>
           </div>
         </header>
+
+        {/* ✈️ templates */}
+        {templates.length > 0 && (
+          <section>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">✈️ Quick templates</h2>
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+              {templates.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => loadTemplate(t)}
+                  className="touch-manipulation shrink-0 rounded-xl border border-line bg-white/5 px-3 py-2 text-left hover:border-accent/50 transition"
+                  title={`${t.kind} · ${t.style} · ${t.palette}`}
+                >
+                  <span className="text-base">{t.emoji}</span>
+                  <div className="text-[11px] font-medium text-gray-200 mt-0.5 whitespace-nowrap">{t.label}</div>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* kind tabs */}
         <div className="grid grid-cols-3 gap-2">
@@ -168,9 +234,7 @@ export default function DesignPage() {
               >
                 <Icon size={18} className={kind === k ? "text-accent" : "text-gray-400"} />
                 <div className="mt-1 text-sm font-semibold text-gray-100 capitalize">{k}</div>
-                <div className="text-[10px] text-gray-500">
-                  {p ? `${p.print[0]}×${p.print[1]} print` : ""}
-                </div>
+                <div className="text-[10px] text-gray-500">{p ? `${p.print[0]}×${p.print[1]} print` : ""}</div>
               </button>
             );
           })}
@@ -186,30 +250,22 @@ export default function DesignPage() {
             kind === "logo"
               ? "e.g. Minimal bird mark for 'Akwaaba Coffee' — warm beans brown, wordmark under a geometric bird"
               : kind === "flyer"
-                ? "e.g. Grand Opening Flyer — 'DUMSOR BURGER' opens Aug 1, Oxfood St, Osu. Buy 1 get 1 free. Bold street-food energy"
+                ? "e.g. Grand Opening Flyer — 'DUMSOR BURGER' opens Aug 1, Oxford St, Osu. Buy 1 get 1 free. Bold street-food energy"
                 : "e.g. Website banner for a fintech savings app — 'Grow your money' headline, calm trust-blue"
           }
           className="w-full rounded-xl border border-line bg-white/5 p-3 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-accent resize-none"
         />
-        <p className="text-[11px] text-gray-500 -mt-4">
-          💡 Put exact text in 'quotes' — the art director keeps spelling intact.
-        </p>
+        <p className="text-[11px] text-gray-500 -mt-4">💡 Put exact text in 'quotes' — the art director keeps spelling intact.</p>
 
         {/* styles */}
         <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Style</h2>
           <div className="flex flex-wrap gap-2">
             {(presets?.styles ?? []).map((s) => (
-              <button
-                key={s.id}
-                onClick={() => setStyle(s.id)}
-                title={s.hint}
+              <button key={s.id} onClick={() => setStyle(s.id)} title={s.hint}
                 className={`touch-manipulation rounded-full border px-3 py-1.5 text-xs transition ${
                   style === s.id ? "border-accent bg-accent/15 text-accent" : "border-line text-gray-300 hover:border-accent/40"
-                }`}
-              >
-                {s.id}
-              </button>
+                }`}>{s.id}</button>
             ))}
           </div>
         </section>
@@ -219,19 +275,89 @@ export default function DesignPage() {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Palette</h2>
           <div className="flex flex-wrap gap-2">
             {(presets?.palettes ?? []).map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setPalette(p.id)}
-                title={p.hint || "AI picks"}
+              <button key={p.id} onClick={() => setPalette(p.id)} title={p.hint || "AI picks"}
                 className={`touch-manipulation flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
                   palette === p.id ? "border-accent bg-accent/15 text-accent" : "border-line text-gray-300 hover:border-accent/40"
-                }`}
-              >
+                }`}>
                 <span className="h-3.5 w-3.5 rounded-full border border-white/20" style={{ background: PALETTE_SWATCH[p.id] }} />
                 {p.id}
               </button>
             ))}
           </div>
+        </section>
+
+        {/* ⭐ brand kit */}
+        <section className="rounded-xl border border-line bg-white/5 overflow-hidden">
+          <button onClick={() => setBrandOpen((o) => !o)}
+            className="touch-manipulation w-full flex items-center gap-2 px-4 py-3 text-left">
+            <Star size={15} className={brand.brand_name ? "text-amber-400" : "text-gray-500"} />
+            <span className="text-sm font-semibold text-gray-100">My Brand Kit</span>
+            {brand.brand_name && <span className="text-xs text-gray-500">· {brand.brand_name}</span>}
+            <ChevronDown size={15} className={`ml-auto text-gray-500 transition-transform ${brandOpen ? "rotate-180" : ""}`} />
+          </button>
+          {brandOpen && (
+            <div className="px-4 pb-4 space-y-3 border-t border-line pt-3">
+              <div className="grid sm:grid-cols-2 gap-2">
+                <input value={brand.brand_name} maxLength={120}
+                  onChange={(e) => setBrand((b) => ({ ...b, brand_name: e.target.value }))}
+                  placeholder="Brand name — e.g. Akwaaba Coffee"
+                  className="rounded-lg border border-line bg-white/5 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-accent" />
+                <input value={brand.tagline} maxLength={200}
+                  onChange={(e) => setBrand((b) => ({ ...b, tagline: e.target.value }))}
+                  placeholder="Tagline (optional) — e.g. Sip happiness"
+                  className="rounded-lg border border-line bg-white/5 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-accent" />
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                {(["color_primary", "color_secondary", "color_accent"] as const).map((k, i) => (
+                  <label key={k} className="flex items-center gap-2 text-xs text-gray-400">
+                    <input type="color" value={brand[k] || ["#7c9bff", "#0b0f14", "#d4af37"][i]}
+                      onChange={(e) => setBrand((b) => ({ ...b, [k]: e.target.value }))}
+                      className="h-8 w-10 cursor-pointer rounded border border-line bg-transparent" />
+                    {["Primary", "Secondary", "Accent"][i]}
+                  </label>
+                ))}
+                <div className="flex items-center gap-1.5">
+                  {FONT_VIBES.map((f) => (
+                    <button key={f} onClick={() => setBrand((b) => ({ ...b, font_vibe: f }))}
+                      className={`touch-manipulation rounded-full border px-2.5 py-1 text-[11px] transition ${
+                        brand.font_vibe === f ? "border-accent bg-accent/15 text-accent" : "border-line text-gray-400"
+                      }`}>{f}</button>
+                  ))}
+                </div>
+              </div>
+              {/* logo picker */}
+              <div>
+                <p className="text-xs text-gray-400 mb-1.5">
+                  Brand logo <span className="text-gray-600">(from your logo designs — gets composited onto flyers & banners)</span>:
+                </p>
+                {logos.length === 0 ? (
+                  <p className="text-[11px] text-gray-600">No logo designs yet — switch to 🖌 Logo mode above and generate one first.</p>
+                ) : (
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {logos.map((d) => (
+                      <button key={d.id}
+                        onClick={() => setBrand((b) => ({ ...b, logo_design_id: b.logo_design_id === d.id ? "" : d.id }))}
+                        className={`touch-manipulation relative h-16 w-16 shrink-0 rounded-lg border overflow-hidden bg-[repeating-conic-gradient(#1b2230_0%_25%,#151b26_0%_50%)] bg-[length:10px_10px] transition ${
+                          brand.logo_design_id === d.id ? "border-accent ring-2 ring-accent/40" : "border-line hover:border-accent/40"
+                        }`}>
+                        {thumbs[d.id]
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={thumbs[d.id]} alt="logo option" className="h-full w-full object-contain" />
+                          : <Loader2 size={14} className="m-auto animate-spin text-gray-600" />}
+                        {brand.logo_design_id === d.id && (
+                          <span className="absolute right-0.5 top-0.5 rounded-full bg-accent p-0.5 text-[#0b0f14]"><Check size={9} /></span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button onClick={saveBrand} disabled={savingBrand}
+                className="touch-manipulation flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-[#0b0f14] disabled:opacity-40">
+                {savingBrand ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Save Brand Kit
+              </button>
+            </div>
+          )}
         </section>
 
         {/* toggles + go */}
@@ -246,11 +372,14 @@ export default function DesignPage() {
               Transparent background
             </label>
           )}
-          <button
-            onClick={generate}
-            disabled={busy || idea.trim().length < 3}
-            className="touch-manipulation ml-auto flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-[#0b0f14] disabled:opacity-40 hover:brightness-110 transition"
-          >
+          {brand.brand_name && kind !== "logo" && (
+            <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer select-none">
+              <input type="checkbox" checked={useBrand} onChange={(e) => setUseBrand(e.target.checked)} className="accent-[rgb(var(--mood-accent))]" />
+              <Star size={12} className="text-amber-400" /> Use my brand{brand.has_logo ? " (logo included)" : ""}
+            </label>
+          )}
+          <button onClick={generate} disabled={busy || idea.trim().length < 3}
+            className="touch-manipulation ml-auto flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-[#0b0f14] disabled:opacity-40 hover:brightness-110 transition">
             {busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
             {busy ? "Designing…" : "Generate design"}
           </button>
@@ -268,7 +397,7 @@ export default function DesignPage() {
           {designs.length === 0 ? (
             <div className="rounded-xl border border-dashed border-line p-10 text-center text-sm text-gray-500">
               <ImageIcon className="mx-auto mb-2 text-gray-600" />
-              No designs yet — describe your flyer or logo above and hit Generate.
+              No designs yet — tap a template above or describe your flyer/logo.
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -282,31 +411,23 @@ export default function DesignPage() {
                       <Loader2 className="animate-spin text-gray-600" />
                     )}
                     <span className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] capitalize text-gray-200 backdrop-blur">{d.kind}</span>
+                    {brand.logo_design_id === d.id && (
+                      <span className="absolute right-2 top-2 rounded-full bg-amber-400/90 px-1.5 py-0.5 text-[9px] font-bold text-black">BRAND LOGO</span>
+                    )}
                   </div>
                   <div className="p-2.5 space-y-2">
                     <p className="line-clamp-2 text-[11px] text-gray-400 min-h-[2rem]">{d.idea}</p>
                     <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => download(d.id, "web", d)}
-                        className="touch-manipulation flex-1 rounded-lg border border-line px-2 py-1.5 text-[10px] text-gray-300 hover:border-accent/50 transition"
-                        title={`${d.width}×${d.height} — socials & web`}
-                      >
-                        <Download size={11} className="inline mr-1 -mt-0.5" />
-                        Web
+                      <button onClick={() => download(d.id, "web", d)} title={`${d.width}×${d.height} — socials & web`}
+                        className="touch-manipulation flex-1 rounded-lg border border-line px-2 py-1.5 text-[10px] text-gray-300 hover:border-accent/50 transition">
+                        <Download size={11} className="inline mr-1 -mt-0.5" />Web
                       </button>
-                      <button
-                        onClick={() => download(d.id, "print", d)}
-                        className="touch-manipulation flex-1 rounded-lg bg-accent/15 border border-accent/40 px-2 py-1.5 text-[10px] font-semibold text-accent hover:bg-accent/25 transition"
-                        title="300 DPI upscaled — print & merch"
-                      >
-                        <Download size={11} className="inline mr-1 -mt-0.5" />
-                        Print HD
+                      <button onClick={() => download(d.id, "print", d)} title="300 DPI upscaled — print & merch"
+                        className="touch-manipulation flex-1 rounded-lg bg-accent/15 border border-accent/40 px-2 py-1.5 text-[10px] font-semibold text-accent hover:bg-accent/25 transition">
+                        <Download size={11} className="inline mr-1 -mt-0.5" />Print HD
                       </button>
-                      <button
-                        onClick={() => remove(d.id)}
-                        className="touch-manipulation rounded-lg border border-line px-2 py-1.5 text-gray-500 hover:text-red-400 hover:border-red-400/40 transition"
-                        title="Delete design"
-                      >
+                      <button onClick={() => remove(d.id)} title="Delete design"
+                        className="touch-manipulation rounded-lg border border-line px-2 py-1.5 text-gray-500 hover:text-red-400 hover:border-red-400/40 transition">
                         <Trash2 size={11} />
                       </button>
                     </div>

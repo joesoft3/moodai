@@ -13,9 +13,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
-from ...db.models import Design, User
+from ...db.models import BrandKit, Design, User
 from ...db.session import get_db
-from ...schemas import DesignRequest
+from ...schemas import BrandKitRequest, DesignRequest
 from ...services import designer as dzn
 from ...services.llm import friendly_ai_error
 from ...services.metering import PLAN_LIMITS, count_today, record_usage
@@ -60,6 +60,51 @@ async def design_presets(user: User = Depends(get_current_user)):
     }
 
 
+def _brand_row(b: BrandKit | None) -> dict:
+    if not b:
+        return {"brand_name": "", "tagline": "", "color_primary": "", "color_secondary": "",
+                "color_accent": "", "font_vibe": "modern", "logo_design_id": "", "has_logo": False}
+    return {
+        "brand_name": b.brand_name, "tagline": b.tagline,
+        "color_primary": b.color_primary, "color_secondary": b.color_secondary,
+        "color_accent": b.color_accent, "font_vibe": b.font_vibe,
+        "logo_design_id": b.logo_design_id, "has_logo": bool(b.logo_design_id),
+    }
+
+
+@router.get("/brand")
+async def get_brand(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    return _brand_row(await db.get(BrandKit, user.id))
+
+
+@router.put("/brand")
+async def put_brand(
+    req: BrandKitRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+):
+    if req.logo_design_id:
+        d = await db.get(Design, req.logo_design_id)
+        if not d or d.user_id != user.id or d.kind != "logo":
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                "logo_design_id must reference one of YOUR logo designs")
+    b = await db.get(BrandKit, user.id)
+    if not b:
+        b = BrandKit(user_id=user.id)
+        db.add(b)
+    b.brand_name = req.brand_name.strip()
+    b.tagline = req.tagline.strip()
+    b.color_primary, b.color_secondary, b.color_accent = req.color_primary, req.color_secondary, req.color_accent
+    b.font_vibe = req.font_vibe
+    b.logo_design_id = req.logo_design_id
+    await db.commit()
+    return _brand_row(b)
+
+
+@router.get("/designs/templates")
+async def design_templates(user: User = Depends(get_current_user)):
+    """✈️ Ghana-flavored starter briefs — tap to load, edit the [brackets], generate."""
+    return {"templates": dzn.DESIGN_TEMPLATES}
+
+
 @router.post("/designs", status_code=status.HTTP_201_CREATED)
 async def create_design(
     req: DesignRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
@@ -78,6 +123,22 @@ async def create_design(
     if req.transparent and req.kind != "logo":
         req.transparent = False
 
+    brand = None
+    if req.use_brand:
+        b = await db.get(BrandKit, user.id)
+        if b:
+            logo_file = ""
+            if b.logo_design_id:
+                lg = await db.get(Design, b.logo_design_id)
+                if lg and lg.user_id == user.id and lg.kind == "logo":
+                    logo_file = lg.file
+            brand = {
+                "brand_name": b.brand_name, "tagline": b.tagline,
+                "color_primary": b.color_primary, "color_secondary": b.color_secondary,
+                "color_accent": b.color_accent, "font_vibe": b.font_vibe,
+                "logo_file": logo_file,
+            }
+
     try:
         out = await dzn.generate_design(
             req.idea.strip(),
@@ -86,6 +147,7 @@ async def create_design(
             palette=req.palette,
             transparent=req.transparent,
             enhance=req.enhance,
+            brand=brand,
         )
     except dzn.DesignError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
