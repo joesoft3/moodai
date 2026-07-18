@@ -57,8 +57,10 @@ jobs:
         env:
           WEB_URL: ${{ inputs.web_url || secrets.LIVE_WEB_URL || vars.LIVE_WEB_URL }}
           API_URL: ${{ inputs.api_url || secrets.LIVE_API_URL || vars.LIVE_API_URL }}
-          NODE_PATH: /tmp/e2e-deps/node_modules
-        run: node scripts/e2e.mjs
+        # ESM ignores NODE_PATH — anchor resolution via a repo-root symlink instead.
+        run: |
+          ln -sfn /tmp/e2e-deps/node_modules node_modules
+          node scripts/e2e.mjs
 
       - uses: actions/upload-artifact@v4
         if: failure() && steps.gate.outputs.live == 'true'

@@ -52,8 +52,10 @@ jobs:
       - name: Run web E2E
         env:
           WEB_URL: http://127.0.0.1:4100
-          NODE_PATH: /tmp/web-e2e/node_modules
-        run: node scripts/web-e2e.mjs
+        # ESM ignores NODE_PATH — anchor resolution via a repo-root symlink instead.
+        run: |
+          ln -sfn /tmp/web-e2e/node_modules node_modules
+          node scripts/web-e2e.mjs
 
       - uses: actions/upload-artifact@v4
         if: always()

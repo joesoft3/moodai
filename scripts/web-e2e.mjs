@@ -42,7 +42,7 @@ for (const [path, needle, label] of checks) {
     if (status >= 400) hard(`${path} → HTTP ${status}`);
     else if (!body.toLowerCase().includes(needle.toLowerCase())) hard(`${path} missing ${label} ("${needle}")`);
     else ok(`${path} renders (${label})`);
-    await page.screenshot({ path: `web-e2e-shots${path.replace(/\//g, "_") || "_home"}.png`, fullPage: true });
+    await page.screenshot({ path: `web-e2e-shots/${path.replace(/\//g, "_") || "_home"}.png`, fullPage: true });
   } catch (e) {
     hard(`${path}: ${e.message}`);
   }
