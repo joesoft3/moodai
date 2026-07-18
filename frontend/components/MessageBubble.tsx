@@ -8,6 +8,17 @@ import { apiFetch } from "@/lib/api";
 import ArenaPanel from "./ArenaPanel";
 import ThinkingPanel from "./ThinkingPanel";
 
+/** DeepSearch answers persist sources as a markdown tail ("- [n](url)") — recover them for the chips row. */
+export function extractCitationUrls(content: string): string[] {
+  const urls: string[] = [];
+  const re = /^\s*-\s*\[\d+\]\((https?:\/\/[^)\s]+)\)/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    if (!urls.includes(m[1])) urls.push(m[1]);
+  }
+  return urls;
+}
+
 export interface AgentStep {
   agent: string;
   task: string;
@@ -218,18 +229,37 @@ export default function MessageBubble({
         {msg.content || "…"}
       </ReactMarkdown>
 
-      {msg.citations && msg.citations.length > 0 && (
-        <div className="mt-3 pt-2 border-t border-line space-y-1">
-          <p className="text-xs text-gray-500 font-medium">Sources</p>
-          {msg.citations.map((c, i) => (
-            <div key={i} className="text-xs">
-              <a className="text-accent underline break-all" href={c} target="_blank" rel="noreferrer">
-                [{i + 1}] {c}
-              </a>
+      {(() => {
+        const cites =
+          msg.citations && msg.citations.length > 0 ? msg.citations : extractCitationUrls(msg.content);
+        if (cites.length === 0) return null;
+        return (
+          <div className="mt-3 pt-2 border-t border-line">
+            <p className="text-xs text-gray-500 font-medium mb-1.5">📚 Sources · {cites.length}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {cites.map((c, i) => {
+                let host = c;
+                try {
+                  host = new URL(c).hostname.replace(/^www\./, "");
+                } catch { /* keep the raw url */ }
+                return (
+                  <a
+                    key={i}
+                    href={c}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={c}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-line bg-base/60 px-2.5 py-1 text-[11px] text-accent hover:border-accent/50 hover:bg-accent/10 transition"
+                  >
+                    <span className="grid h-4 w-4 place-items-center rounded-full bg-accent/15 text-[10px] font-bold">{i + 1}</span>
+                    {host}
+                  </a>
+                );
+              })}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* action bar */}
       {msg.content.length > 0 && (

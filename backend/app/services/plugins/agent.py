@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...config import settings
 from ...db.models import PendingAction, PluginConnection, User
 from ..llm import llm
+from ..notify import notify_approval_needed
 from .tools import PluginError, WRITE_TOOLS, execute_tool, tool_schemas_for
 
 log = logging.getLogger(__name__)
@@ -85,6 +86,7 @@ async def resolve_plugins(
                 )
                 db.add(action)
                 await db.commit()
+                notify_approval_needed(user.id, name)  # push: no-op unless FCM env set
                 pending.append({"id": action.id, "name": name, "args": _display_args(args)})
                 payload = json.dumps(
                     {"status": "awaiting_user_confirmation", "action": name, "note": "The user reviews and approves this in the app UI."}

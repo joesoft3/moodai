@@ -1,8 +1,10 @@
 # 🔔 Push Notifications — blueprint (FCM, CI-ready)
 
-> **Status: blueprint.** Everything is designed against the code we have; nothing ships until
-> Phase 1 lands. Today, approvals/verdicts wait for you **inside the app** — push makes them
-> reach you when you're away.
+> **Status: Phase 1 backend ✅ shipped** (devices table `0011_devices`, `POST/DELETE /api/v1/devices`,
+> `services/notify.py` FCM-HTTP-v1 sender with RS256 minted OAuth + dead-token pruning + per-user
+> cooldowns, and hooks: ✋ staged action → push, ⚔️ verdict → push). It no-ops until
+> `FCM_PROJECT_ID` + `FCM_SERVICE_ACCOUNT_JSON` are set — set them any time, no redeploy code changes.
+> **Next: Phase 2 mobile** (Firebase console + `lib/push.dart` + CI secret) as below.
 
 ## What gets a push (MVP set)
 

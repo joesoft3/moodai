@@ -52,6 +52,7 @@ FRONTEND_URL = http://localhost:3000            ← same here
 |---|---|
 | 🧩 Plugin Store real connects (Gmail/Calendar) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BACKEND_PUBLIC_URL=https://<api-domain>` — guide: [PLUGIN-OAUTH](PLUGIN-OAUTH.md) |
 | 🧩 GitHub plugin | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
+| 🔔 Push notifications | `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_JSON` — guide: [PUSH-NOTIFICATIONS](PUSH-NOTIFICATIONS.md) |
 | 🌍 Custom domain | `CORS_ORIGINS`, `FRONTEND_URL`, `BACKEND_PUBLIC_URL` → see [CUSTOM-DOMAIN-SETUP](CUSTOM-DOMAIN-SETUP.md) |
 | 💳 Stripe (later) | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` |
 

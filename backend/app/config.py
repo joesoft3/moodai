@@ -126,6 +126,11 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_SECRET: str = ""
     PLUGIN_MAX_CALLS: int = 4       # tool-call rounds per message
 
+    # Push notifications (Phase 1: FCM HTTP v1 — docs/PUSH-NOTIFICATIONS.md)
+    FCM_PROJECT_ID: str = ""
+    FCM_SERVICE_ACCOUNT_JSON: str = ""  # entire service-account JSON as one env string
+    NOTIFY_COOLDOWN_SECONDS: int = 300  # per user+kind, process-local
+
     # Video generation (provider seam: xai today; runway/pika as env becomes available)
     VIDEO_PROVIDER: str = "xai"
     MODEL_VIDEO: str = "grok-video-1"

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
@@ -36,6 +37,35 @@ router = APIRouter()
 log = logging.getLogger(__name__)
 
 MAX_SOURCES = 40
+
+
+@router.get("/research")
+async def list_research(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The 🔭 research library: conversations that contain deepsearch reports,
+    newest first — powers the /deepsearch page (saved-research space)."""
+    rows = (
+        await db.execute(
+            select(Conversation.id, Conversation.title, Conversation.updated_at)
+            .join(Message, Message.conversation_id == Conversation.id)
+            .where(Conversation.user_id == user.id, Message.meta["mode"].as_string() == "deepsearch")
+            .group_by(Conversation.id)
+            .order_by(desc(Conversation.updated_at))
+            .limit(50)
+        )
+    ).all()
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "title": r.title,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+    }
 
 
 @router.post("/stream")

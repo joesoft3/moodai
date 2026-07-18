@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from .api.deps import get_redis
-from .api.routes import admin, agents, auth, billing, chat, conversations, deepsearch, domains, files, media, memory, plugins, share, usage, voice, voice_ws, workspaces
+from .api.routes import admin, agents, auth, billing, chat, conversations, deepsearch, devices, domains, files, media, memory, plugins, share, usage, voice, voice_ws, workspaces
 from .config import settings
 from .core.metrics import REQ_COUNT, REQ_LAT, metrics_response
 from .db.session import engine, init_db
@@ -110,6 +110,7 @@ app.include_router(memory.router, prefix="/api/v1/memory", tags=["memory"])
 app.include_router(billing.router, prefix="/api/v1/billing", tags=["billing"])
 app.include_router(usage.router, prefix="/api/v1/usage", tags=["usage"])
 app.include_router(plugins.router, prefix="/api/v1/plugins", tags=["plugins"])
+app.include_router(devices.router, prefix="/api/v1/devices", tags=["devices"])
 app.include_router(share.router, prefix="/api/v1/share", tags=["share"])
 app.include_router(media.router, prefix="/api/v1/media", tags=["media"])
 app.include_router(voice_ws.router, prefix="/api/v1/voice", tags=["voice-ws"])

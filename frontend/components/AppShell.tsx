@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, FolderOpen, Image as ImageIcon, LogOut, Menu, MessageSquare, Puzzle, Settings, ShieldCheck } from "lucide-react";
+import { AudioLines, FolderOpen, Image as ImageIcon, LogOut, Menu, MessageSquare, Puzzle, Settings, ShieldCheck, Telescope } from "lucide-react";
 import ConversationList from "./ConversationList";
 import { API, apiFetch, token } from "@/lib/api";
 import { applyAccent, applyFavicon, BrandMark } from "@/lib/brand";
@@ -14,6 +14,7 @@ const NAV = [
   { href: "/images", label: "Images", icon: ImageIcon },
   { href: "/files", label: "Files", icon: FolderOpen },
   { href: "/plugins", label: "Plugins", icon: Puzzle },
+  { href: "/deepsearch", label: "Research", icon: Telescope },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 

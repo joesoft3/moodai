@@ -21,6 +21,7 @@ from ...services.agents import critic_review, plan, run_agent
 from ...services.llm import friendly_ai_error
 from ...services.memory import extract_and_store
 from ...services.metering import add_tokens, estimate_tokens, plan_rate_mult, record_usage
+from ...services.notify import notify_arena_done
 from ...services.recall import update_conversation_summary
 from ..deps import enforce_rate_limit, get_current_user
 from .chat import generate_title, get_or_create_conversation, sse
@@ -286,6 +287,8 @@ async def arena_stream(
             bg.add_task(update_conversation_summary, user.id, conv.id)
             if created:
                 bg.add_task(generate_title, conv.id, req.message)
+            if meta:  # push: "⚔️ Arena verdict in" — no-op unless FCM env set
+                notify_arena_done(user.id, str(meta.get("winner") or ""))
         except Exception as e:
             log.exception("arena failed")
             yield sse({"type": "error", "message": friendly_ai_error(e)})
