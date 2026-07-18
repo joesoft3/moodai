@@ -113,8 +113,8 @@ jobs:
               anchor_kts = 'signingConfig = signingConfigs.getByName("debug")'
               anchor_groovy = 'signingConfig signingConfigs.debug'
               if anchor_kts in s:
-                  addition = ("            minifyEnabled = true\n"
-                              "            shrinkResources = true\n"
+                  addition = ("            isMinifyEnabled = true\n"          # AGP-9 DSL names
+                              "            isShrinkResources = true\n"
                               '            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")')
                   s = s.replace(anchor_kts, anchor_kts + "\n" + addition, 1)
                   print("R8 patch applied (kts):", p)
