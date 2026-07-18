@@ -1,0 +1,72 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Mood AI — AUTO-DEPLOY web app to Netlify on every push to main.
+#
+# One-time setup (2 min):
+#   1. Netlify account → User settings → Applications → New access token
+#      → copy it → GitHub repo → Settings → Secrets and variables → Actions:
+#        NETLIFY_AUTH_TOKEN = <token>
+#   2. Create/link the Netlify site ONCE (any of):
+#        npx netlify-cli init          (interactive, links this repo), or
+#        Netlify UI → Add new site → import joesoft3/moodai (that's zero CI setup —
+#        Netlify's own Git integration deploys on push and you can skip this workflow),
+#      then put the site ID (Site settings → General → Site details) in secrets:
+#        NETLIFY_SITE_ID = <id>
+#   3. Optional secret: NEXT_PUBLIC_API_URL = https://api.your-domain.com/api/v1
+#
+# From then on:  git push → this workflow builds /frontend and deploys --prod.
+# Pull requests get draft-preview deploys (logged in the job summary).
+# ─────────────────────────────────────────────────────────────────────────────
+name: deploy-netlify
+
+on:
+  push:
+    branches: [main]
+    paths: ["frontend/**", "netlify.toml", ".github/workflows/deploy-netlify.yml"]
+  workflow_dispatch: {}
+
+concurrency:
+  group: netlify-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the Next.js app
+        working-directory: frontend
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Deploy to Netlify (prod)
+        working-directory: frontend
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          npx --yes netlify-cli@latest deploy --build --prod --dir=. --json > deploy.json
+          URL=$(node -p "require('./deploy.json').deploy_url || ''")
+          echo "### 🚀 Netlify deploy live" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "URL=$URL" >> "$GITHUB_OUTPUT"
+        id: netlify
+
+      - name: Upload deploy info
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: netlify-deploy
+          path: frontend/deploy.json
+          retention-days: 7

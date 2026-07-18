@@ -196,3 +196,116 @@ async def admin_delete_user(uid: str, db: AsyncSession = Depends(get_db), admin:
     await db.delete(u)  # conversations/messages cascade via FK
     await db.commit()
     return {"deleted": u.email}
+
+
+# --------------------------------------------------------------------- 📊 analytics
+@router.get("/analytics")
+async def admin_analytics(db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)):
+    """Owner analytics: growth & activity series, usage mix, arena adoption, revenue."""
+    now = datetime.now(timezone.utc)
+    start = (now - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = (await db.execute(select(func.date_trunc("month", func.now())))).scalar()
+
+    # -- 14-day signup series ------------------------------------------------
+    def _days():
+        return [(start + timedelta(days=i)).date().isoformat() for i in range(14)]
+
+    signups = {d: 0 for d in _days()}
+    rows = await db.execute(
+        select(func.date(User.created_at).label("d"), func.count(User.id))
+        .where(User.created_at >= start)
+        .group_by(func.date(User.created_at))
+    )
+    for d, c in rows.all():
+        if str(d) in signups:
+            signups[str(d)] = int(c)
+
+    # -- 14-day active-user series -------------------------------------------
+    active = {d: 0 for d in _days()}
+    rows = await db.execute(
+        select(func.date(UsageEvent.created_at).label("d"), func.count(func.distinct(UsageEvent.user_id)))
+        .where(UsageEvent.created_at >= start)
+        .group_by(func.date(UsageEvent.created_at))
+    )
+    for d, c in rows.all():
+        if str(d) in active:
+            active[str(d)] = int(c)
+
+    # -- usage mix (last 30 days) ---------------------------------------------
+    mix_rows = await db.execute(
+        select(
+            UsageEvent.kind,
+            func.count(UsageEvent.id),
+            func.coalesce(func.sum(UsageEvent.tokens_in + UsageEvent.tokens_out), 0),
+        )
+        .where(UsageEvent.created_at >= now - timedelta(days=30))
+        .group_by(UsageEvent.kind)
+        .order_by(func.count(UsageEvent.id).desc())
+    )
+    usage_mix = [
+        {"kind": k, "runs": int(r), "tokens": int(t)} for k, r, t in mix_rows.all()
+    ]
+
+    # -- arena adoption ---------------------------------------------------------
+    arena_total = int(
+        (await db.scalar(select(func.count(UsageEvent.id)).where(UsageEvent.kind == "arena"))) or 0
+    )
+    arena_week = int(
+        (await db.scalar(
+            select(func.count(UsageEvent.id)).where(
+                UsageEvent.kind == "arena", UsageEvent.created_at >= now - timedelta(days=7)
+            )
+        ))
+        or 0
+    )
+    arena_users = int(
+        (await db.scalar(
+            select(func.count(func.distinct(UsageEvent.user_id))).where(UsageEvent.kind == "arena")
+        ))
+        or 0
+    )
+
+    # -- revenue: Pro subscribers × live Stripe price (best effort) --------------
+    pro_users = int(
+        (await db.scalar(select(func.count(User.id)).where(User.plan == "pro"))) or 0
+    )
+    price_cents, currency, live_price = 2000, "usd", False
+    if settings.STRIPE_SECRET_KEY and settings.STRIPE_PRICE_ID:
+        import asyncio
+
+        import stripe
+
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        try:
+            p = await asyncio.to_thread(stripe.Price.retrieve, settings.STRIPE_PRICE_ID)
+            price_cents = int(p.get("unit_amount") or price_cents)
+            currency = str(p.get("currency") or currency)
+            live_price = True
+        except Exception:
+            pass  # fall back to the estimate below
+
+    # -- this month's heaviest users ---------------------------------------------
+    top_rows = await db.execute(
+        select(User.email, func.coalesce(func.sum(UsageEvent.tokens_in + UsageEvent.tokens_out), 0).label("t"))
+        .join(UsageEvent, UsageEvent.user_id == User.id)
+        .where(UsageEvent.created_at >= month_start)
+        .group_by(User.id, User.email)
+        .order_by(func.sum(UsageEvent.tokens_in + UsageEvent.tokens_out).desc())
+        .limit(5)
+    )
+    top_users = [{"email": e, "tokens": int(t)} for e, t in top_rows.all()]
+
+    return {
+        "signups_14d": [{"day": d, "count": c} for d, c in signups.items()],
+        "active_14d": [{"day": d, "count": c} for d, c in active.items()],
+        "usage_mix": usage_mix,
+        "arena": {"runs_total": arena_total, "runs_7d": arena_week, "unique_users": arena_users},
+        "revenue": {
+            "pro_subscribers": pro_users,
+            "price_cents": price_cents,
+            "currency": currency,
+            "live_price": live_price,  # False → price is an assumption, Stripe not wired
+            "mrr_cents": pro_users * price_cents,
+        },
+        "top_users_month": top_users,
+    }

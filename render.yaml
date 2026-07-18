@@ -1,0 +1,75 @@
+# Mood AI — Render blueprint (docs/BACKEND-HOSTING.md · Path B).
+# Render → New → Blueprint → paste the repo URL. Secrets (sync: false) are
+# prompted once in the dashboard; everything else is automatic.
+
+services:
+  - type: web
+    name: mood-api
+    runtime: docker
+    rootDir: backend
+    plan: starter
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mood-db
+          property: connectionString  # Settings normalizes it to postgresql+asyncpg://
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: mood-redis
+          property: connectionString
+      - key: QDRANT_URL
+        value: http://mood-qdrant:6333
+      - key: UPLOAD_DIR
+        value: /data/storage
+      # --- secrets: fill in the Render dashboard when prompted ---
+      - key: JWT_SECRET
+        sync: false
+      - key: XAI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: ADMIN_BOOTSTRAP_PASSWORD
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false  # https://<your-site>.netlify.app,https://app.your-domain.com
+      - key: FRONTEND_URL
+        sync: false  # https://<your-site>.netlify.app
+    disk:
+      name: mood-uploads
+      mountPath: /data/storage
+      sizeGB: 5
+
+  - type: redis
+    name: mood-redis
+    plan: free
+    ipAllowList: []  # internal only
+
+  - type: pserv
+    name: mood-qdrant
+    runtime: image
+    image:
+      url: docker.io/qdrant/qdrant:latest
+    plan: starter
+    disk:
+      name: mood-qdrant-data
+      mountPath: /qdrant/storage
+      sizeGB: 5
+
+databases:
+  - name: mood-db
+    databaseName: mood
+    user: mood
+    plan: free

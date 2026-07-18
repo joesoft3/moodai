@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Activity, KeyRound, Puzzle, RefreshCw, Search, ShieldCheck, Trash2, UserCog, Users } from "lucide-react";
+import { Activity, BarChart3, KeyRound, Puzzle, RefreshCw, Search, ShieldCheck, Trash2, UserCog, Users } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
 
@@ -36,8 +36,40 @@ interface Gate {
   admin_emails: string[];
 }
 
+interface Analytics {
+  signups_14d: { day: string; count: number }[];
+  active_14d: { day: string; count: number }[];
+  usage_mix: { kind: string; runs: number; tokens: number }[];
+  arena: { runs_total: number; runs_7d: number; unique_users: number };
+  revenue: { pro_subscribers: number; price_cents: number; currency: string; live_price: boolean; mrr_cents: number };
+  top_users_month: { email: string; tokens: number }[];
+}
+
 function fmt(n: number): string {
   return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+}
+
+/** Tiny SVG bar series (no chart lib — keeps the bundle lean). */
+function Bars({ data, color }: { data: { day: string; count: number }[]; color: string }) {
+  const max = Math.max(1, ...data.map((d) => d.count));
+  return (
+    <div>
+      <div className="flex items-end gap-[3px] h-20">
+        {data.map((d) => (
+          <div
+            key={d.day}
+            title={`${d.day.slice(5)}: ${d.count}`}
+            className="flex-1 rounded-t-sm transition-all hover:brightness-125"
+            style={{ height: `${Math.max(4, (d.count / max) * 100)}%`, background: color }}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between text-[9px] text-gray-600 mt-1">
+        <span>{data[0]?.day.slice(5)}</span>
+        <span>{data[data.length - 1]?.day.slice(5)}</span>
+      </div>
+    </div>
+  );
 }
 
 function Card({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
@@ -58,19 +90,22 @@ export default function AdminPage() {
   const [gateMsg, setGateMsg] = useState("");
   const [newPw, setNewPw] = useState("");
   const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [q, setQ] = useState("");
   const [userMsg, setUserMsg] = useState("");
 
   const loadAll = useCallback(async () => {
     try {
-      const [o, g, u] = await Promise.all([
+      const [o, g, u, a] = await Promise.all([
         apiFetch<Overview>("/admin/overview"),
         apiFetch<Gate>("/admin/settings"),
         apiFetch<{ users: AdminUser[] }>(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+        apiFetch<Analytics>("/admin/analytics"),
       ]);
       setOverview(o);
       setGate(g);
       setUsers(u.users);
+      setAnalytics(a);
       setDenied(false);
     } catch (e: any) {
       if ((e.message ?? "").includes("Admin only")) setDenied(true);
@@ -170,6 +205,91 @@ export default function AdminPage() {
               )}
             </Card>
           </div>
+
+          {/* 📊 Analytics: growth, activity, usage mix, arena, revenue */}
+          <Card icon={<BarChart3 size={16} />} title="Analytics — growth · usage · revenue">
+            {!analytics ? (
+              <p className="text-sm text-gray-600">Loading…</p>
+            ) : (
+              <div className="space-y-5">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="rounded-xl bg-base border border-line p-3">
+                    <p className="text-[11px] text-gray-500 mb-2">✨ New signups (14 days)</p>
+                    <Bars data={analytics.signups_14d} color="#7c9bff" />
+                  </div>
+                  <div className="rounded-xl bg-base border border-line p-3">
+                    <p className="text-[11px] text-gray-500 mb-2">🔥 Active users (14 days)</p>
+                    <Bars data={analytics.active_14d} color="#34d399" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                  {(
+                    [
+                      ["⚔️ Arena runs · all time", fmt(analytics.arena.runs_total)],
+                      ["⚔️ Arena runs · 7d", fmt(analytics.arena.runs_7d)],
+                      ["⚔️ Debaters (users)", fmt(analytics.arena.unique_users)],
+                      [
+                        "💳 MRR (est.)",
+                        `${analytics.revenue.currency.toUpperCase()} ${(analytics.revenue.mrr_cents / 100).toFixed(0)}${analytics.revenue.live_price ? "" : " ≈"}`,
+                      ],
+                    ] as [string, string][]
+                  ).map(([label, v]) => (
+                    <div key={label} className="rounded-xl bg-base border border-line px-2 py-3">
+                      <p className="text-base font-semibold text-gray-100">{v}</p>
+                      <p className="text-[10px] text-gray-500">{label}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-gray-600 -mt-3">
+                  💳 {analytics.revenue.pro_subscribers} Pro subscriber{analytics.revenue.pro_subscribers === 1 ? "" : "s"} ×{" "}
+                  {(analytics.revenue.price_cents / 100).toFixed(0)} {analytics.revenue.currency.toUpperCase()}
+                  {analytics.revenue.live_price
+                    ? " (live price from Stripe)"
+                    : " — estimate: set STRIPE_SECRET_KEY + STRIPE_PRICE_ID for the live price"}
+                </p>
+
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="rounded-xl bg-base border border-line p-3">
+                    <p className="text-[11px] text-gray-500 mb-2">🧮 Usage mix — runs (30d)</p>
+                    <div className="space-y-1.5">
+                      {analytics.usage_mix.length === 0 && <p className="text-xs text-gray-600">No metered runs yet.</p>}
+                      {analytics.usage_mix.map((m) => {
+                        const total = Math.max(1, ...analytics.usage_mix.map((x) => x.runs));
+                        return (
+                          <div key={m.kind} className="text-[11px]">
+                            <div className="flex justify-between text-gray-400">
+                              <span>{m.kind}</span>
+                              <span className="text-gray-600">
+                                {fmt(m.runs)} runs · {fmt(m.tokens)} tok
+                              </span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                              <div className="h-full bg-accent/70 rounded-full" style={{ width: `${(m.runs / total) * 100}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-base border border-line p-3">
+                    <p className="text-[11px] text-gray-500 mb-2">🏆 Heaviest users — tokens this month</p>
+                    <div className="space-y-1">
+                      {analytics.top_users_month.length === 0 && <p className="text-xs text-gray-600">Nothing yet.</p>}
+                      {analytics.top_users_month.map((u, i) => (
+                        <p key={u.email} className="text-[11px] text-gray-400 flex justify-between gap-2">
+                          <span className="truncate">
+                            {i + 1}. {u.email}
+                          </span>
+                          <span className="text-gray-600 shrink-0">{fmt(u.tokens)}</span>
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
 
           {/* App access gate */}
           <Card icon={<KeyRound size={16} />} title="App access control">
