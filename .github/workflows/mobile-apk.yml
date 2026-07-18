@@ -22,6 +22,8 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: write  # attach the APK to the GitHub Release on tags
     steps:
       - uses: actions/checkout@v4
 
