@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -45,13 +46,25 @@ class Api {
   }
 
   // -------------------------------------------------------------- REST calls
-  static Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async {
+  static Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body,
+      {Duration timeout = const Duration(seconds: 30)}) async {
     final token = await getToken();
     final res = await _client
         .post(Uri.parse('$baseUrl$path'), headers: _headers(token), body: jsonEncode(body))
-        .timeout(const Duration(seconds: 30));
+        .timeout(timeout);
     if (res.statusCode >= 400) throw Exception(_error(res));
     return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  /// Binary download with auth header (Design Studio PNG tiers, etc.).
+  static Future<Uint8List> getBytes(String path,
+      {Duration timeout = const Duration(seconds: 60)}) async {
+    final token = await getToken();
+    final res = await _client
+        .get(Uri.parse('$baseUrl$path'), headers: _headers(token))
+        .timeout(timeout);
+    if (res.statusCode >= 400) throw Exception(_error(res));
+    return res.bodyBytes;
   }
 
   static Future<dynamic> get(String path) async {

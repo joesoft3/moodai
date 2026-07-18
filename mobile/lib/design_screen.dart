@@ -97,7 +97,7 @@ class _DesignScreenState extends State<DesignScreen> {
         'transparent': _kind == 'logo' && _transparent,
         'enhance': _enhance,
         'use_brand': _useBrand,
-      });
+      }, timeout: const Duration(seconds: 150));
       setState(() => _designs = [d, ..._designs]);
       final id = '${d['id']}';
       Api.getBytes('/media/designs/$id/download?tier=web').then((b) {
