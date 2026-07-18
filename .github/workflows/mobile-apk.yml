@@ -132,8 +132,8 @@ jobs:
                   addition = "\n".join([
                       "            val keyPropsFile = rootProject.file(\"key.properties\")",
                       "            if (keyPropsFile.exists()) {",
-                      "                val kp = java.util.Properties()",
-                      "                kp.load(java.io.FileInputStream(keyPropsFile))",
+                      "                val kp = Properties()",
+                      "                kp.load(FileInputStream(keyPropsFile))",
                       "                signingConfig = signingConfigs.create(\"release\").apply {",
                       '                    storeFile = file(kp["storeFile"] as String)',
                       '                    storePassword = kp["storePassword"] as String',
@@ -148,6 +148,9 @@ jobs:
                       '            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")',
                   ])
                   s = s.replace(anchor_kts, addition, 1)
+                  if "import java.util.Properties" not in s:
+                      s = "import java.util.Properties\nimport java.io.FileInputStream\n\n" + s
+                      print("prepended kts imports")
                   print("signing+R8 patch applied (kts):", p)
                   patched = True
               elif anchor_groovy in s:
