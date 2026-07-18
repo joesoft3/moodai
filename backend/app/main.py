@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from .api.deps import get_redis
-from .api.routes import admin, agents, auth, billing, chat, conversations, deepsearch, devices, domains, files, media, memory, plugins, share, usage, voice, voice_ws, workspaces
+from .api.routes import admin, agents, auth, billing, chat, conversations, deepsearch, designer, devices, domains, files, media, memory, plugins, share, usage, voice, voice_ws, workspaces
 from .config import settings
 from .core.metrics import REQ_COUNT, REQ_LAT, metrics_response
 from .db.session import engine, init_db
@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
         watchdog.cancel()
 
 
-app = FastAPI(title="Mood AI API", version="0.7.0", lifespan=lifespan)
+app = FastAPI(title="Mood AI API", version="0.8.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -113,6 +113,7 @@ app.include_router(plugins.router, prefix="/api/v1/plugins", tags=["plugins"])
 app.include_router(devices.router, prefix="/api/v1/devices", tags=["devices"])
 app.include_router(share.router, prefix="/api/v1/share", tags=["share"])
 app.include_router(media.router, prefix="/api/v1/media", tags=["media"])
+app.include_router(designer.router, prefix="/api/v1/media", tags=["media"])
 app.include_router(voice_ws.router, prefix="/api/v1/voice", tags=["voice-ws"])
 app.include_router(workspaces.router, prefix="/api/v1/workspaces", tags=["workspaces"])
 app.include_router(domains.router, prefix="/api/v1/domains", tags=["domains"])

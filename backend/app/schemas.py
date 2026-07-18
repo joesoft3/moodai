@@ -185,3 +185,12 @@ class TTSRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     voice: str | None = Field(default=None, pattern="^[a-z]{3,12}$")
     speed: float | None = Field(default=None, ge=0.5, le=4.0)
+
+
+class DesignRequest(BaseModel):
+    idea: str = Field(min_length=3, max_length=1500)         # user's rough idea / copy
+    kind: str = Field(default="flyer", pattern="^(flyer|logo|banner)$")
+    style: str = Field(default="minimal", max_length=24)
+    palette: str = Field(default="auto", max_length=16)
+    transparent: bool = False                                 # logos: transparent bg (gpt-image native)
+    enhance: bool = True                                      # art-director brief rewrite

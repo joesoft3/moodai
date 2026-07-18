@@ -220,12 +220,12 @@ class LLMService:
         finally:
             LLM_LAT.labels(model=m, kind="search").observe(time.perf_counter() - t0)
 
-    async def generate_image(self, prompt: str) -> str | None:
+    async def generate_image(self, prompt: str, **opts: Any) -> str | None:
         m = settings.MODEL_IMAGE
         LLM_COUNT.labels(model=m, kind="image").inc()
         t0 = time.perf_counter()
         try:
-            res = await self.client.images.generate(model=m, prompt=prompt, n=1)
+            res = await self.client.images.generate(model=m, prompt=prompt, n=1, **opts)
             d = res.data[0]
             if getattr(d, "url", None):
                 return d.url

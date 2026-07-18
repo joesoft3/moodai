@@ -15,8 +15,8 @@ log = logging.getLogger(__name__)
 
 # Plan tiers (per-calendar-month unless the key says _day). 0 = unlimited.
 PLAN_LIMITS: dict[str, dict[str, int]] = {
-    "free": {"tokens_month": 200_000, "images_month": 20, "deepsearch_day": 10, "agent_day": 15, "video_day": 3, "arena_day": 3, "upload_mb": 25, "mem_days": 30},
-    "pro": {"tokens_month": 5_000_000, "images_month": 500, "deepsearch_day": 200, "agent_day": 300, "video_day": 60, "arena_day": 100, "upload_mb": 50, "mem_days": 365},
+    "free": {"tokens_month": 200_000, "images_month": 20, "deepsearch_day": 10, "agent_day": 15, "video_day": 3, "design_day": 5, "arena_day": 3, "upload_mb": 25, "mem_days": 30},
+    "pro": {"tokens_month": 5_000_000, "images_month": 500, "deepsearch_day": 200, "agent_day": 300, "video_day": 60, "design_day": 60, "arena_day": 100, "upload_mb": 50, "mem_days": 365},
 }
 
 

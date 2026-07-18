@@ -283,3 +283,29 @@ class Film(Base):
     script: Mapped[str] = mapped_column(Text, default="")
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Design(Base):
+    """🎨 Design Studio — flyers, logos & banners with print-tier PNGs.
+
+    `file` = web-tier PNG in MEDIA_DIR (<uuid>_d.png), `print_file` = 300-DPI
+    lanczos-upscaled print tier (<uuid>_dp.png). `prompt` keeps the compiled
+    art-director prompt so users can re-mix the design later."""
+
+    __tablename__ = "designs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(12), default="flyer", index=True)   # flyer|logo|banner
+    idea: Mapped[str] = mapped_column(Text, default="")             # user's raw idea
+    brief: Mapped[str] = mapped_column(Text, default="")            # art-director rewrite (if enhanced)
+    prompt: Mapped[str] = mapped_column(Text, default="")           # compiled provider prompt
+    style: Mapped[str] = mapped_column(String(24), default="minimal")
+    palette: Mapped[str] = mapped_column(String(16), default="auto")
+    transparent: Mapped[bool] = mapped_column(Boolean, default=False)
+    width: Mapped[int] = mapped_column(Integer, default=0)
+    height: Mapped[int] = mapped_column(Integer, default=0)
+    file: Mapped[str] = mapped_column(String(44), default="")       # web tier png
+    print_file: Mapped[str] = mapped_column(String(44), default="")  # 300-DPI print png
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
