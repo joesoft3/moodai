@@ -123,11 +123,9 @@ class _DesignScreenState extends State<DesignScreen> {
     try {
       final bytes = await Api.getBytes('/media/designs/$id/download?tier=$tier');
       final path = await _saveTemp(bytes, 'mood-${d['kind']}-${id.substring(0, 8)}-$tier.png');
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(path, mimeType: 'image/png')],
-          text: 'Made with Mood AI Design Studio 🎨',
-        ),
+      await Share.shareXFiles(
+        [XFile(path, mimeType: 'image/png')],
+        text: 'Made with Mood AI Design Studio 🎨',
       );
     } catch (e) {
       _flash('$e');

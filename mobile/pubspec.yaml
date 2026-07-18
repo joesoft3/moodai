@@ -14,10 +14,10 @@ dependencies:
   flutter_markdown: ^0.7.3
   record: ^7.1.1
   audioplayers: ^6.1.0
-  file_picker: ^11.0.2
+  file_picker: ^8.3.7
   path_provider: ^2.1.3
   video_player: ^2.13.0
-  share_plus: ^12.0.1
+  share_plus: ^11.1.0
   # 🔔 push (Phase 2 — safe without google-services.json, see lib/push.dart)
   firebase_core: ^4.12.1
   firebase_messaging: ^16.4.3
