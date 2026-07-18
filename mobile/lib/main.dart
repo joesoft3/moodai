@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'api.dart';
 import 'chat_screen.dart';
 import 'login_screen.dart';
+import 'push.dart';
 
 void main() => runApp(const MoodApp());
 
@@ -61,6 +64,9 @@ class _Gate extends StatelessWidget {
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        if (snap.data != null) {
+          unawaited(PushService.registerNow()); // 🔔 re-register device on cold start
         }
         return snap.data == null ? const LoginScreen() : const ChatScreen();
       },

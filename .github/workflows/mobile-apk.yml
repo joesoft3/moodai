@@ -115,6 +115,45 @@ jobs:
             echo "release signing: skipped (no MOOD_UPLOAD_KEYSTORE secret) — debug signature used"
           fi
 
+      - name: Firebase config for push (optional — secret FCM_GOOGLE_SERVICES_JSON)
+        working-directory: mobile
+        env:
+          GJSON: ${{ secrets.FCM_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GJSON" ]; then
+            printf '%s' "$GJSON" > android/app/google-services.json
+          fi
+          python3 - << 'PY'
+          import pathlib
+          target = pathlib.Path("android/app/google-services.json")
+          if not target.exists():
+              print("no FCM secret — building without push config (app runs normally, notifications stay off)")
+          else:
+              app = pathlib.Path("android/app/build.gradle.kts")
+              s = app.read_text()
+              if "com.google.gms.google-services" not in s:
+                  anchor = 'id("dev.flutter.flutter-gradle-plugin")'
+                  assert anchor in s, "unexpected app plugins block"
+                  s = s.replace(anchor, anchor + '\n    id("com.google.gms.google-services")', 1)
+                  app.write_text(s)
+                  print("gms plugin applied at app module")
+              for root_name in ("android/build.gradle.kts", "android/build.gradle"):
+                  root = pathlib.Path(root_name)
+                  if not root.exists():
+                      continue
+                  r = root.read_text()
+                  if "google-services" in r or "plugins {" not in r:
+                      continue
+                  r = r.replace(
+                      "plugins {",
+                      'plugins {\n    id("com.google.gms.google-services") version "4.4.2" apply false',
+                      1,
+                  )
+                  root.write_text(r)
+                  print("gms buildscript registered:", root)
+              print("google-services.json + gms plugins: configured")
+          PY
+
       - name: Enable R8 minification + resource shrinking + conditional release signing
         working-directory: mobile
         run: |

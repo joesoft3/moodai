@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'api.dart';
 import 'chat_screen.dart';
 import 'main.dart';
+import 'push.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -38,6 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       final res = await Api.post('/auth/login', {'email': email, 'password': password});
       await Api.setToken(res['access_token'] as String);
+      unawaited(PushService.registerNow()); // 🔔 hook up push best-effort
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const ChatScreen()),

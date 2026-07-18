@@ -12,8 +12,8 @@ export interface ModelOption {
 export const MODEL_OPTIONS: ModelOption[] = [
   { id: "auto", label: "Auto", icon: "🚀", hint: "best pick per message" },
   { id: "grok-3-mini", label: "Mini", icon: "💸", hint: "cheapest, quick answers" },
-  { id: "grok-4-fast", label: "4-fast", icon: "⚡", hint: "newest gen · 2M ctx" },
-  { id: "grok-4", label: "Grok-4", icon: "👑", hint: "flagship · 🧠 reasoning" },
+  { id: "grok-4-fast", label: "S1 Mood-4-Fast", icon: "⚡", hint: "newest gen · 2M ctx" },
+  { id: "grok-4", label: "S1 Mood-4", icon: "👑", hint: "flagship · 🧠 reasoning" },
   { id: "grok-code-fast-1", label: "Code", icon: "💻", hint: "grok-code-fast-1 · 🧠 reasoning" },
 ];
 
@@ -69,7 +69,7 @@ export default function ModelPicker({
           title={
             thinkSupported
               ? "Extended reasoning — shows a 🧠 thinking trace (slower)"
-              : "Thinking needs grok-4, auto→grok-4, or grok-code-fast-1 (not 4-fast, not arena)"
+              : "Thinking needs S1 Mood-4, Auto, or S1 Code (not 4-fast, not arena)"
           }
           className={`rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition flex items-center gap-1 ${
             thinkOn && thinkSupported && !arenaMode

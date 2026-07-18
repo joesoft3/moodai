@@ -241,9 +241,9 @@ export default function Composer({
           {arenaMode
             ? "⚔️ Arena: Grok-4 · GPT · Gemini draft in parallel, blind-vote each other, Grok-4 judges — premium, uses 3× tokens"
             : thinkOn && model !== "grok-4-fast"
-              ? `🧠 ${model === "grok-code-fast-1" ? "grok-code-fast-1" : "grok-4"} extended reasoning — slower, deeper answers`
+              ? `🧠 ${model === "grok-code-fast-1" ? "S1 Code" : "S1 Mood-4"} extended reasoning — slower, deeper answers`
               : model === "grok-4-fast"
-                ? "⚡ grok-4-fast — newer generation with 2M context (no thinking mode)"
+                ? "⚡ S1 Mood-4-Fast — newer generation with 2M context (no thinking mode)"
                 : model === "grok-3-mini"
                   ? "💸 grok-3-mini — cheapest, great for quick questions"
                   : "Mood can make mistakes — verify important info. 🧠 thinking & ⚔️ arena available above"}

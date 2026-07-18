@@ -1,10 +1,18 @@
 # 🔔 Push Notifications — blueprint (FCM, CI-ready)
 
-> **Status: Phase 1 backend ✅ shipped** (devices table `0011_devices`, `POST/DELETE /api/v1/devices`,
-> `services/notify.py` FCM-HTTP-v1 sender with RS256 minted OAuth + dead-token pruning + per-user
-> cooldowns, and hooks: ✋ staged action → push, ⚔️ verdict → push). It no-ops until
-> `FCM_PROJECT_ID` + `FCM_SERVICE_ACCOUNT_JSON` are set — set them any time, no redeploy code changes.
-> **Next: Phase 2 mobile** (Firebase console + `lib/push.dart` + CI secret) as below.
+> **Status: Phase 1 backend ✅ + Phase 2 mobile code ✅ shipped** — the app registers devices,
+> shows foreground banners, and asks permission in-context. CI injects `google-services.json`
+> + the gms plugins **only when** the `FCM_GOOGLE_SERVICES_JSON` secret exists (default builds
+> unaffected). **Remaining: 5 console clicks** below — no more code needed.
+>
+> 1. 🖱 [console.firebase.google.com](https://console.firebase.google.com) → **Add project** → `mood-ai` (Analytics off is fine).
+> 2. 🖱 **Add Android app** → package **`ai.mood`** (must match the build's applicationId) → register.
+> 3. 🖱 Download **`google-services.json`** → GitHub repo → *Settings → Secrets and variables → Actions* →
+>    **`FCM_GOOGLE_SERVICES_JSON`** = the whole JSON, one line.
+> 4. 🖱 Firebase → *Project settings → Service accounts → Generate new private key* → Railway *moodai* → Variables:
+>    `FCM_PROJECT_ID` = `<project-id>` · `FCM_SERVICE_ACCOUNT_JSON` = entire JSON one line.
+> 5. 🖱 Tag any `v*` (or re-run mobile-apk with your API URL) → install → stage a Gmail action →
+>    **“✋ Approval needed” buzzes your phone**; an arena verdict push follows on your next debate.
 
 ## What gets a push (MVP set)
 
