@@ -142,6 +142,7 @@ Every line green = done. 🎉 Send me any failing line/URL and I'll diagnose fro
 |---|---|---|
 | 🎙 **Video sound & voice** | Railway → Variables | `OPENAI_API_KEY=<key>` + `BACKEND_PUBLIC_URL=https://<your-railway-domain>` — then Video Studio's 🔊 **Voice + ambience** just works. Guide: [VIDEO-SOUND](VIDEO-SOUND.md) |
 | 🧪 **Weekly live E2E** | GitHub → Settings → Secrets → Actions | add `LIVE_WEB_URL=https://<netlify-site>` and `LIVE_API_URL=https://<railway-domain>` — every Monday CI signs up a bot on YOUR live app, runs chat/pages/routes, and screenshots failures. |
+| 🔑 **Play upload key** | GitHub → Secrets (4 values) | key is ALREADY generated in the repo workspace → [UPLOAD-KEY.md](UPLOAD-KEY.md) — 5 minutes, then every `v*` tag ships a Play-ready signed AAB. |
 | 🔔 **Push notifications** | Firebase + Railway + 1 GitHub secret | 5 console clicks: [PUSH-NOTIFICATIONS](PUSH-NOTIFICATIONS.md) — then Owner panel → **Push & devices → Send test push** proves it end-to-end. |
 
 *References: [RAILWAY-CHEATSHEET](RAILWAY-CHEATSHEET.md) (full env-var catalog) ·

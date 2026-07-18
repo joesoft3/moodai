@@ -149,6 +149,8 @@ class VideoRequest(BaseModel):
     audio: str = Field(default="none", pattern="^(none|narration|cinema)$")
     voice: str = Field(default="alloy", pattern="^[a-z]{3,12}$")
     narration: str = Field(default="", max_length=600)     # empty → AI writes the voiceover
+    music: str = Field(default="soft", pattern="^(soft|epic|lofi|tension)$")   # cinema bed
+    tempo: float = Field(default=1.0, ge=0.7, le=1.3)      # narration speed
 
 
 class VideoEnhanceRequest(BaseModel):
@@ -166,6 +168,8 @@ class StoryboardRequest(BaseModel):
     negative_prompt: str = Field(default="", max_length=1000)
     audio: str = Field(default="cinema", pattern="^(none|narration|cinema)$")
     voice: str = Field(default="alloy", pattern="^[a-z]{3,12}$")
+    music: str = Field(default="soft", pattern="^(soft|epic|lofi|tension)$")
+    tempo: float = Field(default=1.0, ge=0.7, le=1.3)
     subtitles: bool = False
     # User-supplied scenes: 'shot text' or 'shot text || narration line' per line (2-4 entries)
     custom_scenes: list[str] | None = Field(default=None, max_length=4)
@@ -174,3 +178,4 @@ class StoryboardRequest(BaseModel):
 class TTSRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     voice: str | None = Field(default=None, pattern="^[a-z]{3,12}$")
+    speed: float | None = Field(default=None, ge=0.5, le=4.0)

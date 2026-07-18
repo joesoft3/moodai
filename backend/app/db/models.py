@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -249,3 +249,35 @@ class Device(Base):
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class Film(Base):
+    """🎬 Storyboard films — async-rendered multi-scene movies (docs/VIDEO-SOUND.md).
+
+    status: rendering → done | failed. progress tracks finished scene renders.
+    filename points into MEDIA_DIR (24h TTL janitor); scenes_json keeps the
+    shot/narration pairs (and lets users re-mix the film later)."""
+
+    __tablename__ = "films"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    scenes_json: Mapped[str] = mapped_column(Text, default="[]")     # [{shot, narration}]
+    status: Mapped[str] = mapped_column(String(16), default="rendering", index=True)
+    progress: Mapped[int] = mapped_column(Integer, default=0)        # scenes rendered
+    scene_count: Mapped[int] = mapped_column(Integer, default=0)
+    scene_seconds: Mapped[int] = mapped_column(Integer, default=6)
+    aspect: Mapped[str] = mapped_column(String(8), default="16:9")
+    quality: Mapped[str] = mapped_column(String(8), default="720p")
+    style: Mapped[str] = mapped_column(String(40), default="cinematic")
+    audio: Mapped[str] = mapped_column(String(20), default="none")   # none|voice|voice+ambience
+    voice_id: Mapped[str] = mapped_column(String(20), default="alloy")
+    music: Mapped[str] = mapped_column(String(12), default="soft")
+    tempo: Mapped[float] = mapped_column(Float, default=1.0)
+    subtitles: Mapped[bool] = mapped_column(Boolean, default=False)
+    filename: Mapped[str] = mapped_column(String(40), default="")
+    fallback_url: Mapped[str] = mapped_column(String(600), default="")
+    script: Mapped[str] = mapped_column(Text, default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

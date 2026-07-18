@@ -23,6 +23,27 @@ interface ImgItem {
   };
 }
 
+interface Film {
+  id: string;
+  prompt: string;
+  status: "rendering" | "done" | "failed";
+  progress: number;
+  scene_count: number;
+  scene_seconds: number;
+  aspect_ratio: string;
+  quality: string;
+  style: string;
+  audio: string;
+  voice: string;
+  music: string;
+  tempo: number;
+  subtitles: boolean;
+  url: string;
+  script: string | null;
+  note: string | null;
+  scenes: { shot: string; narration: string }[];
+}
+
 const STORE_KEY = "mood_images";
 const VIDEO_STORE_KEY = "mood_videos";
 
@@ -76,6 +97,19 @@ const STORY_STAGE_FLOW = [
   [330, "🎚 Mixing story, ambience & loudness polish…"],
   [390, "📦 Finalizing your film (still normal)…"],
 ] as const;
+
+const MUSICS = [
+  { v: "soft" as const, label: "🌙 Soft" },
+  { v: "epic" as const, label: "🏔 Epic" },
+  { v: "lofi" as const, label: "📻 Lofi" },
+  { v: "tension" as const, label: "😰 Tension" },
+];
+
+const TEMPOS: { v: number; label: string }[] = [
+  { v: 0.85, label: "🐢 Calm 0.85×" },
+  { v: 1.0, label: "▶ Natural 1×" },
+  { v: 1.15, label: "🐇 Punchy 1.15×" },
+];
 
 const VOICES: { v: string; label: string }[] = [
   { v: "alloy", label: "🎙 Alloy · neutral" },
@@ -146,6 +180,8 @@ export default function ImagesPage() {
   const [audioMode, setAudioMode] = useState<"none" | "narration" | "cinema">("cinema");
   const [voiceId, setVoiceId] = useState("alloy");
   const [narration, setNarration] = useState("");
+  const [music, setMusic] = useState<"soft" | "epic" | "lofi" | "tension">("soft");
+  const [tempo, setTempo] = useState(1.0);
   // 🎬 storyboard options
   const [storyScenes, setStoryScenes] = useState(1);          // 1 = single shot
   const [storySeconds, setStorySeconds] = useState(6);        // per-scene seconds
@@ -176,6 +212,35 @@ export default function ImagesPage() {
       /* quota — non-fatal */
     }
   }
+
+  // 🎬 Deep-link: /images?story=<filmId> loads a film back into the director's chair
+  useEffect(() => {
+    const fid = new URLSearchParams(window.location.search).get("story");
+    if (!fid) return;
+    (async () => {
+      try {
+        const f = await apiFetch<Film>(`/media/films/${fid}`);
+        setMode("video");
+        setStoryScenes(Math.min(Math.max(f.scene_count, 2), 4));
+        setStorySeconds(Math.min(Math.max(f.scene_seconds, 5), 8));
+        setAspect(f.aspect_ratio === "9:16" || f.aspect_ratio === "1:1" ? f.aspect_ratio : "16:9");
+        setStyle(f.style || "cinematic");
+        setAudioMode(f.audio === "voice" ? "narration" : f.audio === "voice+ambience" ? "cinema" : "none");
+        setVoiceId(f.voice || "alloy");
+        setMusic((["soft", "epic", "lofi", "tension"] as const).includes(f.music as any) ? (f.music as typeof music) : "soft");
+        setTempo(f.tempo >= 0.7 && f.tempo <= 1.3 ? f.tempo : 1.0);
+        setSubtitles(Boolean(f.subtitles));
+        setCustomScenes(f.scenes.map((s) => (s.narration ? `${s.shot} || ${s.narration}` : s.shot)).join("\n"));
+        setShowAdvanced(true);
+        setPrompt(f.prompt);
+        setInfo("🎬 Film loaded — tweak scenes / voice / music, then Generate to re-mix it.");
+        window.history.replaceState(null, "", "/images");
+      } catch {
+        setError("Couldn't load that film for editing.");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function persistVideos(next: ImgItem[]) {
     setVideos(next);
@@ -209,6 +274,27 @@ export default function ImagesPage() {
     }
   }
 
+  function finishTile(tmpId: string, p: string, meta: ImgItem["meta"], url: string, note?: string | null) {
+    if (note) setInfo(`ℹ️ ${note}`);
+    if (meta?.audio && meta.audio !== "none")
+      setInfo(`🔊 ${meta.audio === "voice+ambience" ? "Voice + ambience" : "Voice"} soundtrack mixed — loudness-polished. 🎧${meta.subtitles ? " 💬 Subtitles burned in." : ""}`);
+    setVideos((it) => {
+      const next = it.map((i) => (i.id === tmpId ? { id: tmpId.replace("pending", "vid"), url, prompt: p, meta } : i));
+      persistVideos(next);
+      return next;
+    });
+  }
+
+  /** Async storyboard: poll the film row until it leaves 'rendering'. */
+  async function pollFilm(fid: string, ac: AbortController): Promise<Film> {
+    for (;;) {
+      if (ac.signal.aborted) throw new DOMException("aborted", "AbortError");
+      const film = await apiFetch<Film>(`/media/films/${fid}`, { signal: ac.signal });
+      if (film.status !== "rendering") return film;
+      await new Promise((r) => setTimeout(r, 7000));
+    }
+  }
+
   async function generateVideo() {
     const p = prompt.trim();
     if (!p) return;
@@ -226,40 +312,38 @@ export default function ImagesPage() {
     setVideos((it) => [{ id: tmpId, url: "", prompt: p, pending: true, meta }, ...it]);
     const ac = new AbortController();
     abortRef.current = ac;
-    // Storyboards render N clips sequentially — give them honest time.
-    const timeoutMs = isStory ? Math.min((meta.scenes ?? 2) * 6, 24) * 60 * 1000 : 6 * 60 * 1000;
+    const timeoutMs = isStory ? 30 * 60 * 1000 : 6 * 60 * 1000; // films render async — be patient
     const to = setTimeout(() => ac.abort(), timeoutMs);
     try {
-      type VideoRes = { url: string; audio?: string; script?: string | null; note?: string | null; subtitles?: boolean };
-      const res = isStory
-        ? await apiFetch<VideoRes>("/media/videos/storyboard", {
-            method: "POST",
-            body: JSON.stringify({
-              prompt: p, scenes: storyScenes, scene_seconds: storySeconds,
-              aspect_ratio: aspect, quality, style, negative_prompt: negative,
-              audio: audioMode, voice: voiceId, subtitles,
-              custom_scenes: useCustom ? sceneLines : null,
-            }),
-            signal: ac.signal,
-          })
-        : await apiFetch<VideoRes>("/media/videos", {
-            method: "POST",
-            body: JSON.stringify({
-              prompt: p, duration, aspect_ratio: aspect, quality, style, negative_prompt: negative,
-              audio: audioMode, voice: voiceId, narration: narration.trim(),
-            }),
-            signal: ac.signal,
-          });
-      setPrompt("");
-      if (res.note) setInfo(`ℹ️ ${res.note}`);
-      if (res.audio && res.audio !== "none")
-        setInfo(`🔊 ${res.audio === "voice+ambience" ? "Voice + ambience" : "Voice"} soundtrack mixed — loudness-polished. 🎧${res.subtitles ? " 💬 Subtitles burned in." : ""}`);
-      const doneMeta: ImgItem["meta"] = { ...meta, audio: res.audio ?? "none", script: res.script ?? undefined, subtitles: res.subtitles };
-      setVideos((it) => {
-        const next = it.map((i) => (i.id === tmpId ? { id: tmpId.replace("pending", "vid"), url: res.url, prompt: p, meta: doneMeta } : i));
-        persistVideos(next);
-        return next;
-      });
+      if (isStory) {
+        // 202: server queues the render → poll /media/films/{id}
+        const queued = await apiFetch<{ film: Film }>("/media/videos/storyboard", {
+          method: "POST",
+          body: JSON.stringify({
+            prompt: p, scenes: storyScenes, scene_seconds: storySeconds,
+            aspect_ratio: aspect, quality, style, negative_prompt: negative,
+            audio: audioMode, voice: voiceId, music, tempo, subtitles,
+            custom_scenes: useCustom ? sceneLines : null,
+          }),
+          signal: ac.signal,
+        });
+        setPrompt("");
+        setInfo("🎬 Filming in the background — track it here or on the Films page (safe to leave).");
+        const film = await pollFilm(queued.film.id, ac);
+        if (film.status === "failed") throw new Error(film.note ?? "Render failed");
+        finishTile(tmpId, p, { ...meta, audio: film.audio, script: film.script ?? undefined, subtitles: film.subtitles }, film.url, film.note);
+      } else {
+        const res = await apiFetch<{ url: string; audio?: string; script?: string | null; note?: string | null }>("/media/videos", {
+          method: "POST",
+          body: JSON.stringify({
+            prompt: p, duration, aspect_ratio: aspect, quality, style, negative_prompt: negative,
+            audio: audioMode, voice: voiceId, narration: narration.trim(), music, tempo,
+          }),
+          signal: ac.signal,
+        });
+        setPrompt("");
+        finishTile(tmpId, p, { ...meta, audio: res.audio ?? "none", script: res.script ?? undefined }, res.url, res.note);
+      }
     } catch (e: any) {
       setVideos((it) => it.filter((i) => i.id !== tmpId));
       setError(e?.name === "AbortError" ? "Video generation timed out." : (e.message ?? "Video generation failed"));
@@ -381,6 +465,9 @@ export default function ImagesPage() {
                   { v: "narration" as const, label: "🎙 AI voiceover" },
                   { v: "cinema" as const, label: "🎼 Voice + ambience" },
                 ]} />
+              {audioMode === "cinema" && (
+                <ChipRow label="🎼 Music" value={music} onChange={setMusic} options={MUSICS} />
+              )}
               {audioMode !== "none" && (
                 <div className="rounded-xl bg-base border border-line p-3 space-y-2.5">
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -404,6 +491,7 @@ export default function ImagesPage() {
                     </button>
                     <span className="text-[10px] text-gray-600 ml-auto">loudness-polished · EBU R128</span>
                   </div>
+                  <ChipRow label="⏱ Tempo" value={tempo} onChange={setTempo} options={TEMPOS} />
                   {storyScenes === 1 ? (
                     <textarea
                       value={narration}

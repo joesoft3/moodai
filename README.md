@@ -23,7 +23,7 @@ Mood AI is a full-stack AI super-app scaffold that delivers Grok-style capabilit
 - 📊 Domain analytics — real-time requests & unique users per custom domain (Redis counters, zero migrations)
 - ✉️ Team invites & domain gating — shareable join links (emailed via the owner's Gmail) ; bind a domain and only `@company.com` emails can join
 - ✋ Human-in-the-loop — write actions (send email, create event/issue) wait for in-chat approval
-- 🎬 **Professional video studio with 🎙 Cinema Sound + Storyboard films** — duration/aspect/quality/style presets, negative prompts, ✨ prompt enhancer, templates (xAI video, provider seam), **AI voiceovers (10 voices) + ambient bed, loudness-polished and muxed server-side; storyboard mode splits one idea into 2–4 directed scenes, stitches + voices them into a continuous film with optional burned-in subtitles — see [docs/VIDEO-SOUND.md](docs/VIDEO-SOUND.md)** · 🐍 Python sandbox tool
+- 🎬 **Professional video studio with 🎙 Cinema Sound + Storyboard films** — duration/aspect/quality/style presets, negative prompts, ✨ prompt enhancer, templates (xAI video, provider seam), **AI voiceovers (10 voices, ▶ preview, tempo control) + 4 procedural music moods, loudness-polished ffmpeg mixing; async storyboard jobs split one idea into 2–4 directed scenes rendered 2-wide, stitched + voiced into a continuous film with optional burned-in subtitles, tracked in the 🎞 **Films** gallery (poll, resume, re-mix, share) — see [docs/VIDEO-SOUND.md](docs/VIDEO-SOUND.md)** · 🐍 Python sandbox tool
 - 📱 Flutter mobile client (login + streaming chat) in `mobile/`
 - 🔗 Share conversations via revocable public links · 📊 usage dashboard (tokens vs. plan tiers)
 - 🔒 JWT auth, Redis rate limiting, Stripe subscription hooks
@@ -129,7 +129,8 @@ mood-ai/
 | POST | `/api/v1/media/videos` | pro video generation (plan-capped, metered) · `audio=narration\|cinema` for 🎙 AI voiceover + 🎼 ambience |
 | GET | `/api/v1/media/files/{name}` | public streaming of muxed (sound-finished) videos, 24 h TTL |
 | POST | `/api/v1/media/videos/enhance` | ✨ professional video-prompt rewrite |
-| GET/POST | `/api/v1/admin/devices` · `/push-test` | owner dashboard v2: push device stats · send a test notification |
+| GET/POST/DEL | `/api/v1/media/films[/{id}[/resume]]` | 🎞 async storyboard gallery: poll status, resume stuck renders, delete |
+| GET/POST | `/api/v1/admin/devices` · `/push-test` · `/engagement` | owner dashboard v2/v3: push device stats · test notification · funnel & sound analytics |
 | WS | `/api/v1/voice/ws?token=` | realtime voice session (chunks in, deltas+TTS out) |
 | GET/POST | `/api/v1/workspaces[...]` | teams: create, members, shared convos, seat usage |
 | POST | `/api/v1/workspaces/{id}/invites` · `/join` | invite links (owner) · redeem (domain-gated) |

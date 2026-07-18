@@ -122,3 +122,48 @@ def test_tts_request_voice_optional():
     assert TTSRequest(text="hello", voice="onyx").voice == "onyx"
     with pytest.raises(ValidationError):
         TTSRequest(text="hello", voice="BROKEN VOICE")
+
+
+# ---------------------------------------------------------------- music on the stitch graph + films rows
+def test_stitch_cmd_honours_music_choice():
+    cmd = storyboard.build_stitch_cmd("ffmpeg", ["s0.mp4"], ["v0.mp3"], "out.mp4",
+                                      scene_seconds=6, aspect="16:9", with_bed=True, music="lofi")
+    filt = cmd[cmd.index("-filter_complex") + 1]
+    assert "anoisesrc" in filt and "[a0][bed]amix=inputs=2" in filt
+
+
+def test_stitch_cmd_default_bed_is_soft():
+    cmd = storyboard.build_stitch_cmd("ffmpeg", ["s0.mp4"], ["v0.mp3"], "out.mp4",
+                                      scene_seconds=6, aspect="16:9", with_bed=True)
+    assert "sine=frequency=108" in cmd[cmd.index("-filter_complex") + 1]
+
+
+def test_storyboard_request_music_tempo_validation():
+    ok = StoryboardRequest(prompt="x" * 10, music="lofi", tempo=1.2)
+    assert ok.music == "lofi" and ok.tempo == 1.2
+    with pytest.raises(ValidationError):
+        StoryboardRequest(prompt="x" * 10, music="rock")
+    with pytest.raises(ValidationError):
+        StoryboardRequest(prompt="x" * 10, tempo=2.0)
+
+
+def test_film_row_roundtrips_scenes_and_kwargs():
+    """The async job contract: _film_kwargs rebuilds a launch payload from the row."""
+    import json
+    from app.db.models import Film
+    from app.api.routes.media import _film_kwargs, _film_out
+
+    film = Film(
+        id="f" * 32, user_id="u1", prompt="tiny epic",
+        scenes_json=json.dumps([{"shot": "dawn over the city", "narration": "It begins."}]),
+        status="done", progress=2, scene_count=2, scene_seconds=6, aspect="16:9", quality="720p",
+        style="cinematic", audio="voice", voice_id="onyx", music="epic", tempo=1.1,
+        subtitles=True, filename="a" * 32 + ".mp4", script="It begins.", note="",
+    )
+    kw = _film_kwargs(film)
+    assert kw["user_id"] == "u1" and kw["scene_count"] == 2
+    assert kw["custom_scenes"] == ["dawn over the city || It begins."]
+    assert kw["opts"]["quality"] == "720p" and kw["music"] == "epic"
+    out = _film_out(film)
+    assert out["status"] == "done" and out["url"].endswith("/api/v1/media/files/" + "a" * 32 + ".mp4")
+    assert out["scenes"][0]["shot"] == "dawn over the city" and out["subtitles"] is True

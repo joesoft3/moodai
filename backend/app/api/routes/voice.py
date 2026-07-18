@@ -43,7 +43,7 @@ async def tts(req: TTSRequest, user: User = Depends(get_current_user)):
     if req.voice and req.voice not in NARRATION_VOICES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Unknown voice '{req.voice}'")
     try:
-        audio = await voice.synthesize(req.text, req.voice)
+        audio = await voice.synthesize(req.text, req.voice, req.speed)
     except VoiceNotConfigured as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
     return Response(content=audio, media_type="audio/mpeg")

@@ -32,7 +32,11 @@ your idea ──▶ director model ──▶ voiceover script (sized to clip len
 Options:
 
 - **Voice** — 10 voices (Alloy, Nova, Shimmer, Echo, Onyx, Fable, Sage, Ash,
-  Coral, Verse). Unknown ids safely fall back to Alloy.
+  Coral, Verse) with a **▶ Preview** button; unknown ids fall back to Alloy.
+- **🎼 Music mood** (cinema mode) — `soft` (default), `epic` (55 Hz drone),
+  `lofi` (pink-noise tape hiss), `tension` (2 Hz pulse). All are synthesized by
+  ffmpeg on the fly — zero assets, zero licensing.
+- **⏱ Tempo** — narration speed `0.7–1.3` (UI: Calm 0.85× / Natural / Punchy 1.15×).
 - **Custom narration** — leave the box blank and AI writes the voiceover; write
   your own (≤600 chars) and the mixer performs exactly that.
 - Result tiles carry a **🎙/🎼 chip** and the spoken script in italics.
@@ -55,13 +59,29 @@ Flip **🎬 Scenes** from *Single shot* to a 2/3/4-scene film:
 
 Fair use: **each scene counts as one daily video** and the endpoint pre-checks
 your remaining quota *before* spending anything (429 with the math if short).
-Voice preflight: no `OPENAI_API_KEY` → films are shot silent with a note, never
-refunded-after-the-fact. Stitch failure → you get scene 1 (a finished clip), never
+Scenes render **2-wide in parallel** (≈2× faster films, still provider-polite),
+and metering happens *at render time* — a mid-film failure only ever counts the
+scenes actually rendered. Voice preflight: no `OPENAI_API_KEY` → films are shot
+silent with a note. Stitch failure → you get scene 1 (a finished clip), never
 an empty hand.
 
-`POST /api/v1/media/videos/storyboard` — same fields as `/media/videos` plus
-`scenes` (2–4), `scene_seconds` (5–8), `subtitles`, `custom_scenes[]`. Response
-adds the `scenes: [{shot, narration}]` the film was built from + `subtitles: bool`.
+**Async by design (v0.5.0):** `POST /api/v1/media/videos/storyboard` answers
+`202` in ~1s with `{ film }` — the render runs as a background task persisting
+milestones to the `films` table, so the UI can poll and the 🎞 **Films** gallery
+(`/films`) remembers everything:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /media/films` | your newest 24 films + `jobs_running` counter |
+| `GET /media/films/{id}` | one film (status/progress/url/script/scenes) — the poll target |
+| `POST /media/films/{id}/resume` | relaunch a film stuck `rendering` (e.g. after a deploy restarted the worker mid-render) |
+| `DELETE /media/films/{id}` | remove a film |
+
+Status flow: `rendering` (progress N/scene_count per milestone) → `done`
+(url + script + actual audio mode) | `failed` (why). The gallery's
+**✏️ Edit & re-render** deep-links into the studio with the film's scenes
+pre-loaded as custom scenes — the fastest "regenerate one scene" workflow:
+edit that line, hit Generate (only billed for the new render's scenes).
 
 ## API
 

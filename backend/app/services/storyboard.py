@@ -151,6 +151,7 @@ def build_stitch_cmd(
     scene_seconds: int,
     aspect: str,
     with_bed: bool,
+    music: str = "soft",
 ) -> list[str]:
     """Pure argv: normalize every clip (scale/pad/fps), concat scene pairs, mix
     the per-scene voices back-to-back, add the ambience bed, loudness polish."""
@@ -181,14 +182,8 @@ def build_stitch_cmd(
     audio_out = None
     if voices:
         if with_bed:
-            fade_out_at = max(total - 1.5, 0)
-            filters.append(
-                f"sine=frequency=108:duration={total},volume=0.7[s1];"
-                f"sine=frequency=162:duration={total}[s2];"
-                f"[s1][s2]amix=inputs=2:normalize=0,volume=0.08,tremolo=f=0.12:d=0.6,"
-                f"afade=t=in:st=0:d=1.5,afade=t=out:st={fade_out_at}:d=1.5[bed];"
-                f"[a0][bed]amix=inputs=2:duration=first:normalize=0[aout]"
-            )
+            filters.append(soundtrack.bed_filter(music, total))
+            filters.append("[a0][bed]amix=inputs=2:duration=first:normalize=0[aout]")
             audio_out = "[aout]"
         else:
             audio_out = "[a0]"
@@ -242,7 +237,10 @@ async def generate_storyboard(
     voice_name: str,
     custom_scenes: list | None,
     subtitles: bool,
+    music: str = "soft",
+    tempo: float = 1.0,
     on_scene: Callable[[int, int], None] | None = None,
+    on_plan: Callable[[list], None] | None = None,
 ) -> tuple[StoryboardResult | None, str | None, str | None]:
     """Returns (result, note, fallback_url). On stitch failure result is None and
     fallback_url is scene 1's provider URL — the user always gets a video back."""
@@ -252,7 +250,8 @@ async def generate_storyboard(
     want_voice = audio != "none"
     notes: list[str] = []
 
-    # 1) Render every scene clip (sequential — provider-polite)
+    # 1) Render scene clips — parallel with a small window (≈2× faster films,
+    #    still provider-polite): two renders in flight at once, order preserved.
     scene_opts = VideoOptions(
         duration=max(5, min(scene_seconds, 8)),  # provider clamps to 5..15
         aspect_ratio=opts.aspect_ratio,
@@ -260,11 +259,22 @@ async def generate_storyboard(
         style=opts.style,
         negative_prompt=opts.negative_prompt,
     )
-    urls = []
-    for i, sc in enumerate(scenes):
-        if on_scene:
-            on_scene(i + 1, scene_count)
-        urls.append(await video.generate(sc.shot, scene_opts))
+    if on_plan:
+        on_plan(scenes)
+    import asyncio
+    sem = asyncio.Semaphore(2)
+    progress = {"done": 0}
+
+    async def _render(i: int, shot: str) -> tuple[int, str]:
+        async with sem:
+            url = await video.generate(shot, scene_opts)
+            progress["done"] += 1
+            if on_scene:
+                on_scene(progress["done"], scene_count)
+            return i, url
+
+    results = await asyncio.gather(*(_render(i, sc.shot) for i, sc in enumerate(scenes)))
+    urls = [u for _, u in sorted(results)]
 
     os.makedirs(settings.MEDIA_DIR, exist_ok=True)
     work = f"/tmp/mood-story-{uuid.uuid4().hex}"
@@ -290,7 +300,7 @@ async def generate_storyboard(
                 for i, sc in enumerate(scenes):
                     path = os.path.join(work, f"voice{i}.mp3")
                     if sc.narration.strip():
-                        audio_bytes = await voice_svc.synthesize(sc.narration, voice_id)
+                        audio_bytes = await voice_svc.synthesize(sc.narration, voice_id, tempo)
                         with open(path, "wb") as fh:
                             fh.write(audio_bytes)
                     else:
@@ -325,7 +335,7 @@ async def generate_storyboard(
             cmd = build_stitch_cmd(
                 ffbin, clips, use_voices, final,
                 scene_seconds=scene_seconds, aspect=opts.aspect_ratio,
-                with_bed=(kwargs or {}).get("with_bed", False),
+                with_bed=(kwargs or {}).get("with_bed", False), music=music,
             )
             code, err = await soundtrack._run(cmd, timeout=600)
             if code == 0:

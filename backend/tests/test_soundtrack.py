@@ -121,3 +121,34 @@ def test_media_dir_default_is_tmp(monkeypatch):
     # No env in CI → tmp default keeps local dev + tests side-effect free
     assert soundtrack.settings.MEDIA_DIR
     assert soundtrack.settings.MEDIA_TTL_HOURS > 0
+
+
+# ---------------------------------------------------------------- music beds + tempo
+def test_bed_filter_presets_emit_bed_label():
+    for kind in soundtrack.MUSIC_BEDS:
+        frag = soundtrack.bed_filter(kind, 10)
+        assert frag.endswith("[bed]"), kind
+        assert "duration=10" in frag and "afade=t=out:st=8.5" in frag
+
+
+def test_bed_filter_variants_are_distinct():
+    assert "anoisesrc" in soundtrack.bed_filter("lofi", 8)          # tape-hiss lofi
+    assert "frequency=55" in soundtrack.bed_filter("epic", 8)       # sub drone
+    assert "tremolo=f=2.0" in soundtrack.bed_filter("tension", 8)   # pulsing
+    assert soundtrack.bed_filter("unknown-mood", 8).startswith("sine=frequency=108")  # → soft default
+
+
+def test_mux_cmd_honours_music_choice():
+    cmd = soundtrack.build_mux_cmd("ffmpeg", "in.mp4", "v.mp3", "out.mp4", 8, with_bed=True, with_original=False, music="tension")
+    assert "tremolo=f=2.0" in cmd[cmd.index("-filter_complex") + 1]
+
+
+def test_video_request_music_and_tempo_validation():
+    ok = VideoRequest(prompt="x" * 10, audio="cinema", music="epic", tempo=1.15)
+    assert ok.music == "epic" and ok.tempo == 1.15
+    with pytest.raises(ValidationError):
+        VideoRequest(prompt="x" * 10, music="dubstep")     # unknown bed
+    with pytest.raises(ValidationError):
+        VideoRequest(prompt="x" * 10, tempo=1.5)           # above the 1.3 cap
+    with pytest.raises(ValidationError):
+        VideoRequest(prompt="x" * 10, tempo=0.5)           # below the 0.7 floor

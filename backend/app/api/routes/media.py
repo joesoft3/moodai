@@ -2,18 +2,21 @@
 Cinema Sound (AI voiceover + ambience muxed via ffmpeg), a prompt enhancer
 powered by the fast model, and public serving of the muxed files."""
 
+import json
 import os
 import re
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
-from ...db.models import User
+from ...db.models import Film, User
 from ...db.session import get_db
 from ...schemas import StoryboardRequest, VideoEnhanceRequest, VideoRequest
-from ...services import soundtrack, storyboard
+from ...services import film_jobs, soundtrack, storyboard
 from ...services.llm import friendly_ai_error, llm
 from ...services.media import STYLE_PRESETS, VideoGenerationError, VideoNotConfigured, VideoOptions, video
 from ...services.metering import PLAN_LIMITS, count_today, record_usage
@@ -69,6 +72,8 @@ async def generate_video(
                 narration=req.narration,
                 prompt=req.prompt.strip(),
                 with_bed=req.audio == "cinema",
+                music=req.music,
+                tempo=req.tempo,
             )
         except VoiceNotConfigured:
             result = None
@@ -132,13 +137,78 @@ async def enhance_prompt(req: VideoEnhanceRequest, user: User = Depends(get_curr
     return {"enhanced": enhanced}
 
 
-@router.post("/videos/storyboard")
+def _film_out(f: Film) -> dict:
+    url = ""
+    if f.filename:
+        url = f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/api/v1/media/files/{f.filename}"
+    elif f.fallback_url:
+        url = f.fallback_url
+    try:
+        scenes = json.loads(f.scenes_json or "[]")
+    except json.JSONDecodeError:
+        scenes = []
+    return {
+        "id": f.id,
+        "prompt": f.prompt,
+        "status": f.status,
+        "progress": f.progress,
+        "scene_count": f.scene_count,
+        "scene_seconds": f.scene_seconds,
+        "aspect_ratio": f.aspect,
+        "quality": f.quality,
+        "style": f.style,
+        "audio": f.audio,
+        "voice": f.voice_id,
+        "music": f.music,
+        "tempo": f.tempo,
+        "subtitles": bool(f.subtitles),
+        "url": url,
+        "script": f.script or None,
+        "note": f.note or None,
+        "scenes": scenes,
+        "created_at": f.created_at.isoformat() if f.created_at else None,
+    }
+
+
+def _film_kwargs(f: Film) -> dict:
+    """Rebuild the launch payload from a persisted row (resume path)."""
+    custom = []
+    try:
+        for sc in json.loads(f.scenes_json or "[]"):
+            line = sc.get("shot", "")
+            if sc.get("narration"):
+                line += f" || {sc['narration']}"
+            custom.append(line)
+    except json.JSONDecodeError:
+        pass
+    return {
+        "user_id": f.user_id,
+        "prompt": f.prompt,
+        "scene_count": f.scene_count,
+        "scene_seconds": f.scene_seconds,
+        "opts": {
+            "duration": f.scene_seconds,
+            "aspect_ratio": f.aspect,
+            "quality": f.quality,
+            "style": f.style,
+            "negative_prompt": "",
+        },
+        "audio": f.audio,
+        "voice_name": f.voice_id,
+        "custom_scenes": custom or None,
+        "subtitles": bool(f.subtitles),
+        "music": f.music,
+        "tempo": f.tempo,
+    }
+
+
+@router.post("/videos/storyboard", status_code=status.HTTP_202_ACCEPTED)
 async def generate_storyboard_endpoint(
     req: StoryboardRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    """🎬 Multi-scene film: director-model scene split → per-scene clips → ffmpeg
-    stitch (normalized concat) → continuous voiceover + ambience (+ burned subs).
-    Every scene counts as one daily video usage; preflight blocks over-cap runs."""
+    """🎬 Multi-scene film — ASYNC: answers in ~1s; poll GET /media/films/{id}.
+    Quota pre-check blocks over-cap runs before anything is spent; scenes render
+    2-wide in parallel; every milestone persists to the films row."""
     await enforce_rate_limit(f"video:{user.id}", 2)
     custom = storyboard.parse_custom_scenes(req.custom_scenes or [], req.scene_seconds) if req.custom_scenes else None
     scene_count = len(custom) if custom else req.scenes
@@ -153,59 +223,95 @@ async def generate_storyboard_endpoint(
             )
     # Preflight: don't burn N paid generations if the voice provider is absent.
     audio = req.audio
-    pre_note = None
+    note = None
     if audio != "none" and not settings.OPENAI_API_KEY:
         audio = "none"
-        pre_note = "Voice provider not configured (set OPENAI_API_KEY) — filming silent."
+        note = "Voice provider not configured (set OPENAI_API_KEY) — filming silent."
 
-    opts = VideoOptions(
-        duration=req.scene_seconds,
-        aspect_ratio=req.aspect_ratio,
+    film = Film(
+        id=uuid.uuid4().hex,
+        user_id=user.id,
+        prompt=req.prompt.strip(),
+        scenes_json=json.dumps(
+            [{"shot": sc.shot, "narration": sc.narration} for sc in custom] if custom else []
+        ),
+        status="rendering",
+        progress=0,
+        scene_count=scene_count,
+        scene_seconds=req.scene_seconds,
+        aspect=req.aspect_ratio,
         quality=req.quality,
         style=req.style if req.style in STYLE_PRESETS else "cinematic",
-        negative_prompt=req.negative_prompt,
+        audio=audio,
+        voice_id=req.voice,
+        music=req.music,
+        tempo=req.tempo,
+        subtitles=req.subtitles,
+        note=note or "",
     )
-    try:
-        result, note, fallback_url = await storyboard.generate_storyboard(
-            req.prompt.strip(),
-            scene_count=scene_count,
-            scene_seconds=req.scene_seconds,
-            opts=opts,
-            audio=audio,
-            voice_name=req.voice,
-            custom_scenes=req.custom_scenes,
-            subtitles=req.subtitles,
+    db.add(film)
+    await db.commit()
+
+    film_jobs.launch(
+        film.id,
+        {
+            "user_id": user.id,
+            "prompt": film.prompt,
+            "scene_count": scene_count,
+            "scene_seconds": req.scene_seconds,
+            "opts": {
+                "duration": req.scene_seconds,
+                "aspect_ratio": req.aspect_ratio,
+                "quality": req.quality,
+                "style": film.style,
+                "negative_prompt": req.negative_prompt,
+            },
+            "audio": audio,
+            "voice_name": req.voice,
+            "custom_scenes": req.custom_scenes,
+            "subtitles": req.subtitles,
+            "music": req.music,
+            "tempo": req.tempo,
+        },
+    )
+    return {"job": "storyboard", "film": _film_out(film)}
+
+
+@router.get("/films")
+async def list_films(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = (
+        await db.execute(
+            select(Film).where(Film.user_id == user.id).order_by(Film.created_at.desc()).limit(24)
         )
-    except storyboard.StoryboardError as e:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
-    except VideoNotConfigured as e:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
-    except VideoGenerationError as e:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
+    ).scalars().all()
+    return {"films": [_film_out(f) for f in rows], "jobs_running": film_jobs.running_count()}
 
-    scenes_out = [{"shot": s.shot, "narration": s.narration} for s in (result.scenes if result else (custom or []))]
-    if result:
-        url = f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/api/v1/media/files/{result.filename}"
-        audio_out = result.mode
-        subtitles_done = result.subtitles
-    else:
-        url = fallback_url  # stitch failed — scene 1, still a finished clip
-        audio_out = "none"
-        subtitles_done = False
-    final_note = " · ".join(x for x in (pre_note, note) if x) or None
 
-    for _ in range(scene_count):
-        await record_usage(user.id, "video", settings.MODEL_VIDEO)
-    if audio_out != "none":
-        await record_usage(user.id, "media_sound", settings.TTS_MODEL)
-    return {
-        "url": url,
-        "prompt": req.prompt,
-        "model": settings.MODEL_VIDEO,
-        "audio": audio_out,
-        "script": " / ".join(s["narration"] for s in scenes_out if s["narration"]) or None,
-        "note": final_note,
-        "scenes": scenes_out,
-        "subtitles": subtitles_done,
-        "meta": {"scenes": scene_count, "scene_seconds": req.scene_seconds, "aspect_ratio": opts.aspect_ratio, "quality": opts.quality, "style": opts.style},
-    }
+async def _own_film(db: AsyncSession, user: User, fid: str) -> Film:
+    film = await db.get(Film, fid)
+    if not film or film.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Film not found")
+    return film
+
+
+@router.get("/films/{fid}")
+async def get_film(fid: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    return _film_out(await _own_film(db, user, fid))
+
+
+@router.post("/films/{fid}/resume")
+async def resume_film(fid: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Relaunch a film stuck 'rendering' (e.g. server restarted mid-render)."""
+    film = await _own_film(db, user, fid)
+    if film.status != "rendering":
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Film is {film.status} — nothing to resume")
+    film_jobs.launch(film.id, _film_kwargs(film))
+    return {"resumed": film.id}
+
+
+@router.delete("/films/{fid}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_film(fid: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    film = await _own_film(db, user, fid)
+    await db.delete(film)
+    await db.commit()
+    return None

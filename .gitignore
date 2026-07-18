@@ -26,3 +26,4 @@ tsconfig.tsbuildinfo
 # flutter
 mobile/.dart_tool/
 mobile/build/
+.secrets/

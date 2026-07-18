@@ -70,6 +70,40 @@ def fit_words(text: str, budget: int) -> str:
     return clipped.strip().rstrip(",;:—-") + ("" if clipped.strip().endswith((".", "!", "?")) else ".")
 
 
+# ---------------------------------------------------------------- music beds
+# Procedural ambience presets — synthesized by ffmpeg itself (zero assets,
+# zero licensing). Each fragment emits ONE [bed] stream spanning `seconds`,
+# faded in/out, sitting ≈ −28 dB under the voice.
+MUSIC_BEDS = ("soft", "epic", "lofi", "tension")
+
+
+def bed_filter(kind: str, seconds: int) -> str:
+    """Pure builder (unit-tested): returns the ambience fragment ending in [bed]."""
+    d = max(1, int(seconds))
+    fade = f"afade=t=in:st=0:d=1.5,afade=t=out:st={max(d - 1.5, 0)}:d=1.5"
+    if kind == "epic":
+        return (
+            f"sine=frequency=55:duration={d}[e1];sine=frequency=110:duration={d}[e2];"
+            f"[e1][e2]amix=inputs=2:normalize=0,volume=0.10,tremolo=f=0.07:d=0.7,{fade}[bed]"
+        )
+    if kind == "lofi":
+        return (
+            f"sine=frequency=98:duration={d}[l1];sine=frequency=147:duration={d}[l2];"
+            f"anoisesrc=color=pink:duration={d},lowpass=f=1200,volume=0.02[hiss];"
+            f"[l1][l2][hiss]amix=inputs=3:normalize=0,volume=0.07,tremolo=f=0.09:d=0.5,{fade}[bed]"
+        )
+    if kind == "tension":
+        return (
+            f"sine=frequency=60:duration={d}[t1];sine=frequency=90:duration={d}[t2];"
+            f"[t1][t2]amix=inputs=2:normalize=0,volume=0.09,tremolo=f=2.0:d=0.75,{fade}[bed]"
+        )
+    # default "soft"
+    return (
+        f"sine=frequency=108:duration={d},volume=0.7[s1];sine=frequency=162:duration={d}[s2];"
+        f"[s1][s2]amix=inputs=2:normalize=0,volume=0.08,tremolo=f=0.12:d=0.6,{fade}[bed]"
+    )
+
+
 NARRATION_PROMPT = """You are the voiceover writer for a premium AI film studio.
 Write a voiceover of AT MOST {budget} words for a {seconds}s video about the user's idea.
 Tone: cinematic, warm, confident — movie-trailer grade but never cheesy.
@@ -119,11 +153,10 @@ async def _run(cmd: list[str], timeout: int = 180) -> tuple[int, str]:
 
 
 def build_mux_cmd(
-    ffbin: str, video_in: str, voice_in: str, out: str, seconds: int, *, with_bed: bool, with_original: bool
+    ffbin: str, video_in: str, voice_in: str, out: str, seconds: int, *, with_bed: bool, with_original: bool, music: str = "soft"
 ) -> list[str]:
     """Pure argv builder — unit-tested so the live pipeline never ships a broken filtergraph."""
     d = max(1, int(seconds))
-    fade_out_at = max(d - 1.5, 0)
     if not with_bed and not with_original:
         mix = "[1:a]loudnorm=I=-16:TP=-1.5:LRA=11[aout]"
         return [
@@ -136,12 +169,7 @@ def build_mux_cmd(
     if with_original:
         parts.append("[0:a]volume=0.35[orig]")
     if with_bed:
-        parts.append(
-            f"sine=frequency=108:duration={d},volume=0.7[s1];"
-            f"sine=frequency=162:duration={d}[s2];"
-            f"[s1][s2]amix=inputs=2:normalize=0,volume=0.08,tremolo=f=0.12:d=0.6,"
-            f"afade=t=in:st=0:d=1.5,afade=t=out:st={fade_out_at}:d=1.5[bed]"
-        )
+        parts.append(bed_filter(music, d))
     sources = ["[vo]"] + (["[orig]"] if with_original else []) + (["[bed]"] if with_bed else [])
     parts.append(f"{''.join(sources)}amix=inputs={len(sources)}:duration=first:normalize=0[aout]")
     cmd = [ffbin, "-y", "-i", video_in, "-i", voice_in]
@@ -193,6 +221,8 @@ async def add_soundtrack(
     narration: str | None = None,
     prompt: str = "",
     with_bed: bool = True,
+    music: str = "soft",
+    tempo: float = 1.0,
 ) -> SoundtrackResult | None:
     """Full pipeline. Returns None when ffmpeg is missing; lets TTS/auth errors bubble up."""
     ffbin = ffmpeg_path()
@@ -204,7 +234,7 @@ async def add_soundtrack(
 
     from .voice import voice as voice_svc  # local import: keeps voice seam lazy
 
-    speech = await voice_svc.synthesize(script, voice_id)
+    speech = await voice_svc.synthesize(script, voice_id, tempo)
 
     os.makedirs(settings.MEDIA_DIR, exist_ok=True)
     work = f"/tmp/mood-mux-{uuid.uuid4().hex}"
@@ -231,7 +261,7 @@ async def add_soundtrack(
         with_original = await _probe_streams(ffbin, video_in)
         name = f"{uuid.uuid4().hex}.mp4"
         final = os.path.join(settings.MEDIA_DIR, name)
-        cmd = build_mux_cmd(ffbin, video_in, voice_in, final, seconds, with_bed=with_bed, with_original=with_original)
+        cmd = build_mux_cmd(ffbin, video_in, voice_in, final, seconds, with_bed=with_bed, with_original=with_original, music=music)
         code, err = await _run(cmd)
         mode = "voice+ambience" if with_bed else "voice"
         if code != 0:
