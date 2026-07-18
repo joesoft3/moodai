@@ -63,6 +63,27 @@ jobs:
               s = re.sub(r'targetSdk\s+flutter\.targetSdkVersion', 'targetSdk 36', s)
               p.write_text(s)
               print("patched", p)
+          # plugins (file_picker etc.) carry their own compileSdk — force them all to 36
+          root = pathlib.Path("android/build.gradle.kts")
+          if root.exists():
+              s = root.read_text()
+              if "allSupportedModulesCompileSdkOverride" not in s:
+                  block = "\n".join([
+                      "",
+                      "// allSupportedModulesCompileSdkOverride — align every plugin with the app compileSdk",
+                      "subprojects {",
+                      "  afterEvaluate { project ->",
+                      '    val androidExt = project.extensions.findByName("android")',
+                      "    if (androidExt is com.android.build.gradle.BaseExtension) {",
+                      "      androidExt.compileSdkVersion(36)",
+                      "    }",
+                      "  }",
+                      "}",
+                      "",
+                  ])
+                  s += block
+                  root.write_text(s)
+                  print("patched", root)
           PY
 
       - name: Grant runtime permissions (release manifest)
