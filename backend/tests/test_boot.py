@@ -18,6 +18,7 @@ def test_app_boots_and_wires_routers():
         "/api/v1/media/films",
         "/api/v1/media/public/films/{fid}",
         "/api/v1/media/videos/storyboard",
+        "/api/v1/media/films/{fid}/social-draft",
         "/api/v1/admin/overview",
         "/api/v1/admin/devices",
         "/api/v1/admin/push-test",

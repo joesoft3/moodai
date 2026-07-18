@@ -162,3 +162,10 @@ boot (`send_email` dropped during the Push rewrite).
 - One TTS call per sound-tracked video (~1–2 s audio per minute of narration).
 - Muxing is CPU-bound in-request (~2–6 s for 15 s clips on Railway's small
   instances); the provider's generation still dominates wall-clock time.
+
+## 👥 Dialogue films (`dialogue: true`, `voice_b`)
+Storyboard films can carry **two narrators**: lines alternate Voice A (your chosen voice) and Voice B (`voice_b`, default Onyx). Each scene stores its voice; Create-from-storyboard accepts per-scene `{"shot","narration","voice"}` objects.
+## 📊 Film views & analytics
+Public share-page views are counted per-film (45-minute per-IP dedup, hashed in-memory — no IP storage) and surface at **Admin → Engagement → 🏆 Top films** (plus a 🎼 music-mood mix chart).
+## 📣 Social autopilot (`POST /media/films/{id}/social-draft`)
+One-tap post kits: pick X / Threads / YouTube Shorts → the model drafts a ≤240-char caption with your share link, and the request lands as a **✋ staged approval** in `/plugins` — nothing posts without your Approve. Actual posting is staged-only until an X/YouTube connector is added.

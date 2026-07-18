@@ -2,13 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------- theme tokens
+   Dark is the brand default. [data-theme="light"] flips surfaces + the
+   readability overrides below (components stay theme-agnostic). */
+:root {
+  --mood-base: 11 15 20;       /* #0b0f14 */
+  --mood-panel: 18 24 31;      /* #12181f */
+  --mood-line: 30 41 59;       /* #1e293b */
+  --mood-accent: 124 155 255;  /* #7c9bff */
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --mood-base: 246 248 251;
+  --mood-panel: 255 255 255;
+  --mood-line: 226 232 240;
+  --mood-accent: 79 91 213;    /* deeper blue: passes contrast on white */
+  color-scheme: light;
+}
+
 html,
 body {
   height: 100%;
 }
 
 body {
-  background: #0b0f14;
+  background: rgb(var(--mood-base));
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
 }
@@ -22,6 +41,33 @@ body {
   background: #263243;
   border-radius: 3px;
 }
+[data-theme="light"] .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #c2cddd;
+}
+
+/* ---- light-mode readability sheet: the app was authored dark-first with
+   Tailwind grays; flip the whole gray ramp + translucent whites once, here. */
+[data-theme="light"] .text-gray-100 { color: #0f172a !important; }
+[data-theme="light"] .text-gray-200 { color: #1e293b !important; }
+[data-theme="light"] .text-gray-300 { color: #334155 !important; }
+[data-theme="light"] .text-gray-400 { color: #475569 !important; }
+[data-theme="light"] .text-gray-500 { color: #64748b !important; }
+[data-theme="light"] .text-gray-600 { color: #94a3b8 !important; }
+[data-theme="light"] .bg-white\/5 { background-color: rgb(2 6 23 / 0.045) !important; }
+[data-theme="light"] .bg-white\/10 { background-color: rgb(2 6 23 / 0.07) !important; }
+[data-theme="light"] .hover\:bg-white\/5:hover { background-color: rgb(2 6 23 / 0.06) !important; }
+[data-theme="light"] .hover\:bg-white\/10:hover { background-color: rgb(2 6 23 / 0.09) !important; }
+[data-theme="light"] .hover\:text-gray-200:hover { color: #1e293b !important; }
+[data-theme="light"] .hover\:text-gray-300:hover { color: #334155 !important; }
+[data-theme="light"] .hover\:text-gray-400:hover { color: #475569 !important; }
+[data-theme="light"] .hover\:text-whit:hover, [data-theme="light"] .hover\:text-white:hover { color: #0f172a !important; }
+[data-theme="light"] .text-white:not(.keep-white) { color: #0f172a !important; }
+[data-theme="light"] .placeholder-gray-600::placeholder { color: #94a3b8 !important; }
+[data-theme="light"] .bg-black\/60 { background-color: rgb(2 6 23 / 0.45) !important; }
+[data-theme="light"] .msg h1, [data-theme="light"] .msg h2, [data-theme="light"] .msg h3, [data-theme="light"] .msg h4 { color: #0f172a; }
+/* accent text must survive on white; keep accent-filled buttons' black label */
+[data-theme="light"] .text-accent { color: rgb(var(--mood-accent)) !important; }
+
 
 /* markdown message styling (no typography plugin needed) */
 .msg p {

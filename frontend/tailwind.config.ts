@@ -16,10 +16,12 @@ const config: Config = {
     },
     extend: {
       colors: {
-        base: "#0b0f14",
-        panel: "#12181f",
-        line: "#1e293b",
-        accent: "#7c9bff",
+        // Theme tokens live in globals.css (dark :root, [data-theme="light"] light) —
+        // components never change when the user flips black/white themes.
+        base: "rgb(var(--mood-base) / <alpha-value>)",
+        panel: "rgb(var(--mood-panel) / <alpha-value>)",
+        line: "rgb(var(--mood-line) / <alpha-value>)",
+        accent: "rgb(var(--mood-accent) / <alpha-value>)",
       },
     },
   },

@@ -334,6 +334,22 @@ async def execute_tool(db: AsyncSession, user_id: str, name: str, args: dict) ->
             return await run_python(str(args.get("code") or ""))
         except SandboxError as e:
             raise PluginError(str(e))
+    if name == "social_post":
+        # 📣 Social autopilot v1: approving hands back the drafted caption +
+        # film link (X/YouTube connectors plug in later — same staged pipeline).
+        network = str(args.get("network") or "x")
+        caption = str(args.get("caption") or "")
+        url = str(args.get("url") or "")
+        if not caption or not url:
+            raise PluginError("social_post needs caption + url")
+        return {
+            "posted": False,
+            "network": network,
+            "caption": caption,
+            "url": url,
+            "how_to": "Approved — copy the caption and post it with your film link. "
+                      "Auto-posting lands when the X/YouTube connectors ship.",
+        }
     provider = TOOL_PROVIDER.get(name)
     if not provider:
         raise PluginError(f"Unknown tool: {name}")

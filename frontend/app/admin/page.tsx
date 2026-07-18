@@ -52,6 +52,8 @@ interface Engagement {
     delivery_rate: number | null;
   };
   sound: { videos_30d: number; with_sound_30d: number; attach_rate: number | null };
+  top_films?: { id: string; title: string; views: number; scenes: number; created_at: string | null }[];
+  music_mix?: Record<string, number>;
   device_activity: {
     email: string;
     platform: string;
@@ -466,6 +468,48 @@ export default function AdminPage() {
                       className="h-full rounded-full bg-emerald-400/70"
                       style={{ width: `${(engagement.sound.attach_rate ?? 0) * 100}%` }}
                     />
+                  </div>
+                </div>
+
+                {/* 🏆 Top shared films + 🎼 music moods */}
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-base border border-line p-3 space-y-1.5">
+                    <p className="text-[11px] text-gray-500">🏆 Most-viewed shared films</p>
+                    {(engagement.top_films ?? []).length === 0 ? (
+                      <p className="text-[11px] text-gray-600">No public film views yet — share a /f/{'{'}id{'}'} link and watch this light up.</p>
+                    ) : (
+                      <ul className="space-y-1 text-[11px]">
+                        {(engagement.top_films ?? []).map((f) => (
+                          <li key={f.id} className="flex items-center gap-2">
+                            <span className="text-gray-300 truncate">{f.title || "untitled film"}</span>
+                            <span className="text-gray-600 ml-auto shrink-0">👁 {fmt(f.views)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="rounded-xl bg-base border border-line p-3 space-y-1.5">
+                    <p className="text-[11px] text-gray-500">🎼 Cinema moods picked (30d)</p>
+                    {Object.keys(engagement.music_mix ?? {}).length === 0 ? (
+                      <p className="text-[11px] text-gray-600">No cinema-mix films in 30 days.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {Object.entries(engagement.music_mix ?? {}).map(([mood, n]) => (
+                          <div key={mood} className="flex items-center gap-2 text-[11px]">
+                            <span className="text-gray-400 w-16">{mood}</span>
+                            <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-accent/70"
+                                style={{
+                                  width: `${Math.max(8, (n / Math.max(1, ...Object.values(engagement.music_mix ?? {}))) * 100)}%`,
+                                }}
+                              />
+                            </div>
+                            <span className="text-gray-500 shrink-0">{n}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 

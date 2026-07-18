@@ -168,11 +168,17 @@ class StoryboardRequest(BaseModel):
     negative_prompt: str = Field(default="", max_length=1000)
     audio: str = Field(default="cinema", pattern="^(none|narration|cinema)$")
     voice: str = Field(default="alloy", pattern="^[a-z]{3,12}$")
+    dialogue: bool = False                                         # 👥 two-voice films
+    voice_b: str = Field(default="onyx", pattern="^[a-z]{3,12}$")  # 2nd narrator in dialogue mode
     music: str = Field(default="soft", pattern="^(soft|epic|lofi|tension)$")
     tempo: float = Field(default=1.0, ge=0.7, le=1.3)
     subtitles: bool = False
     # User-supplied scenes: 'shot text' or 'shot text || narration line' per line (2-4 entries)
     custom_scenes: list[str] | None = Field(default=None, max_length=4)
+
+
+class SocialDraftRequest(BaseModel):
+    network: str = Field(default="x", pattern="^(x|threads|youtube_shorts)$")
 
 
 class TTSRequest(BaseModel):

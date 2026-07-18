@@ -40,9 +40,19 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
+const themeInit = `try {
+  var t = localStorage.getItem("mood_theme");
+  if (!t) t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  document.documentElement.dataset.theme = t;
+} catch (e) { document.documentElement.dataset.theme = "dark"; }`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* 🌓 apply stored/system theme before first paint — no flash */}
+        <script dangerouslySetInnerHTML={{ __html: themeInit }} />
+      </head>
       <body className="bg-base text-gray-100 antialiased">
         <ConversationsProvider>{children}</ConversationsProvider>
       </body>

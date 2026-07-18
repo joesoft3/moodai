@@ -59,7 +59,7 @@ async def _run(film_id: str, kw: dict) -> None:
                 pass
 
         def on_plan(scenes: list) -> None:
-            payload = json.dumps([{"shot": sc.shot, "narration": sc.narration} for sc in scenes])
+            payload = json.dumps([{"shot": sc.shot, "narration": sc.narration, "voice": sc.voice} for sc in scenes])
             try:
                 asyncio.get_running_loop().create_task(_set(film_id, {"scenes_json": payload}))
             except RuntimeError:
@@ -76,6 +76,8 @@ async def _run(film_id: str, kw: dict) -> None:
             subtitles=kw["subtitles"],
             music=kw["music"],
             tempo=kw["tempo"],
+            dialogue=kw.get("dialogue", False),
+            voice_b=kw.get("voice_b", "onyx"),
             on_scene=on_scene,
             on_plan=on_plan,
         )
@@ -89,7 +91,7 @@ async def _run(film_id: str, kw: dict) -> None:
                     "poster": result.poster,
                     "audio": result.mode,
                     "subtitles": bool(result.subtitles),
-                    "scenes_json": json.dumps([{"shot": s.shot, "narration": s.narration} for s in result.scenes]),
+                    "scenes_json": json.dumps([{"shot": s.shot, "narration": s.narration, "voice": s.voice} for s in result.scenes]),
                     "script": " / ".join(s.narration for s in result.scenes if s.narration.strip()),
                     "note": note or "",
                     "progress": kw["scene_count"],

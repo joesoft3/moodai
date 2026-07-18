@@ -7,15 +7,15 @@ import os
 import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
-from ...db.models import Film, User
+from ...db.models import Film, PendingAction, User
 from ...db.session import get_db
-from ...schemas import StoryboardRequest, VideoEnhanceRequest, VideoRequest
+from ...schemas import SocialDraftRequest, StoryboardRequest, VideoEnhanceRequest, VideoRequest
 from ...services import film_jobs, soundtrack, storyboard
 from ...services.llm import friendly_ai_error, llm
 from ...services.media import STYLE_PRESETS, VideoGenerationError, VideoNotConfigured, VideoOptions, video
@@ -202,11 +202,11 @@ def _film_kwargs(f: Film) -> dict:
     """Rebuild the launch payload from a persisted row (resume path)."""
     custom = []
     try:
-        for sc in json.loads(f.scenes_json or "[]"):
-            line = sc.get("shot", "")
-            if sc.get("narration"):
-                line += f" || {sc['narration']}"
-            custom.append(line)
+        custom = [
+            {"shot": sc.get("shot", ""), "narration": sc.get("narration", ""), "voice": sc.get("voice", "a")}
+            for sc in json.loads(f.scenes_json or "[]")
+            if sc.get("shot")
+        ]
     except json.JSONDecodeError:
         pass
     return {
@@ -300,6 +300,8 @@ async def generate_storyboard_endpoint(
             "subtitles": req.subtitles,
             "music": req.music,
             "tempo": req.tempo,
+            "dialogue": req.dialogue,
+            "voice_b": req.voice_b,
         },
     )
     return {"job": "storyboard", "film": _film_out(film)}
@@ -345,15 +347,40 @@ async def delete_film(fid: str, db: AsyncSession = Depends(get_db), user: User =
     return None
 
 
+# Privacy-safe view dedup: hash the client IP (never stored), 45-min window,
+# in-memory (a worker restart just allows an occasional recount).
+_view_dedup: dict[tuple[str, str], float] = {}
+
+
+def _count_view(film: Film, client_host: str | None) -> None:
+    import hashlib
+    import time
+
+    now = time.time()
+    # prune stale entries occasionally so the map stays small
+    if len(_view_dedup) > 10_000:
+        for k, ts in list(_view_dedup.items())[:2000]:
+            if ts < now - 2700:
+                _view_dedup.pop(k, None)
+    key = (film.id, hashlib.sha256((client_host or "?").encode()).hexdigest()[:16])
+    if _view_dedup.get(key, 0) > now - 2700:
+        return
+    _view_dedup[key] = now
+    film.views = (film.views or 0) + 1
+
+
 @router.get("/public/films/{fid}")
-async def public_film(fid: str, db: AsyncSession = Depends(get_db)):
+async def public_film(fid: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Public read of a FINISHED film — powers the /f/{id} share page SEO + player.
 
     No auth (film ids are 128-bit unguessable, matching the public media files).
-    Rendering/failed films stay private — a share link exists only when the film did."""
+    Rendering/failed films stay private — a share link exists only when the film did.
+    Counts a privacy-safe view (hashed IP, 45-min dedup, nothing personal stored)."""
     film = await db.get(Film, fid)
     if not film or film.status != "done" or not (film.filename or film.fallback_url):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No shareable film with that id")
+    _count_view(film, request.client.host if request.client else None)
+    await db.commit()
     full = _film_out(film)
     return {
         "id": film.id,
@@ -365,5 +392,66 @@ async def public_film(fid: str, db: AsyncSession = Depends(get_db)):
         "aspect_ratio": film.aspect,
         "audio": film.audio,
         "style": film.style,
+        "views": film.views,
         "created_at": full["created_at"],
+    }
+
+
+SOCIAL_CAPTION_PROMPT = """You write scroll-stopping social captions for an AI-film studio's posts.
+Draft ONE caption (≤240 chars incl. the link, for {network}) for a film described below.
+Style: confident, cinematic-zero-cringe; 2-4 relevant hashtags; end with the film link line.
+No quotes around the whole caption. Film idea and voiceover script follow."""
+
+
+@router.post("/films/{fid}/social-draft", status_code=status.HTTP_201_CREATED)
+async def draft_social_post(
+    fid: str,
+    req: SocialDraftRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """📣 Social autopilot: draft a caption → stage a ✋ inbox action for THIS film.
+    Approving shows the caption + link to copy; auto-posting plugs in with X/YouTube connectors."""
+    await enforce_rate_limit(f"social:{user.id}", 5)
+    film = await _own_film(db, user, fid)
+    if film.status != "done" or not film.filename:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only finished, stitched films can be shared")
+    origin = settings.FRONTEND_URL.rstrip("/")
+    share_url = f"{origin}/f/{film.id}"
+    caption = ""
+    try:
+        caption = (
+            await llm.complete(
+                [
+                    {"role": "system", "content": SOCIAL_CAPTION_PROMPT.format(network=req.network)},
+                    {
+                        "role": "user",
+                        "content": f"Film idea: {film.prompt}\nVoiceover: {film.script or '(silent)'}\nLink: {share_url}",
+                    },
+                ],
+                temperature=0.75,
+                max_tokens=140,
+            )
+        ).strip().strip('"')
+    except Exception:
+        caption = ""
+    if not caption:
+        caption = f"🎬 Directed this with one prompt. Watch my {film.scene_count}-scene AI film: {share_url}\n\n#AIfilms #MoodAI #AIVideo"
+    elif share_url not in caption:
+        caption = f"{caption.rstrip()}\n\n🔗 {share_url}"
+
+    action = PendingAction(
+        id=uuid.uuid4().hex,
+        user_id=user.id,
+        tool="social_post",
+        args={"network": req.network, "caption": caption, "url": share_url, "film_id": film.id},
+        status="pending",
+        conversation_id=None,
+    )
+    db.add(action)
+    await db.commit()
+    return {
+        "staged": action.id,
+        "inbox": "✋ Plugin Store inbox (/plugins)",
+        "draft": {"network": req.network, "caption": caption, "url": share_url},
     }

@@ -162,8 +162,64 @@ def test_film_row_roundtrips_scenes_and_kwargs():
     )
     kw = _film_kwargs(film)
     assert kw["user_id"] == "u1" and kw["scene_count"] == 2
-    assert kw["custom_scenes"] == ["dawn over the city || It begins."]
+    assert kw["custom_scenes"] == [{"shot": "dawn over the city", "narration": "It begins.", "voice": "a"}]
     assert kw["opts"]["quality"] == "720p" and kw["music"] == "epic"
     out = _film_out(film)
     assert out["status"] == "done" and out["url"].endswith("/api/v1/media/files/" + "a" * 32 + ".mp4")
     assert out["scenes"][0]["shot"] == "dawn over the city" and out["subtitles"] is True
+
+
+
+# ---------------------------------------------------------------- dialogue mode
+def test_parse_scenes_dialogue_voice_tags():
+    raw = '[{"shot": "opening wide", "narration": "Every city hides a pulse.", "voice": "a"},'           ' {"shot": "neon alley", "narration": "And tonight it beats louder.", "voice": "b"},'           ' {"shot": "rooftop", "narration": "You sure about that?", "voice": "B"},'           ' {"shot": "sunrise", "narration": "Positive.", "voice": "x"}]'
+    scenes = storyboard._parse_scenes(raw, 4, dialogue=True)
+    voices = [s.voice for s in scenes]
+    assert voices == ["a", "b", "b", "a"]          # clamped: anything != "b" → "a"
+
+
+def test_parse_scenes_voice_tags_ignored_without_dialogue():
+    raw = '[{"shot": "a", "narration": "line", "voice": "b"}]'
+    scenes = storyboard._parse_scenes(raw, 1, dialogue=False)
+    assert scenes[0].voice == "a"
+
+
+def test_custom_scene_dicts_roundtrip_voice_tags():
+    scenes = storyboard.parse_custom_scenes(
+        [{"shot": "wide", "narration": "line a", "voice": "a"}, {"shot": "close", "narration": "line b", "voice": "b"}],
+        6,
+    )
+    assert [s.voice for s in scenes] == ["a", "b"] and scenes[1].narration == "line b"
+
+
+def test_storyboard_request_dialogue_fields():
+    ok = StoryboardRequest(prompt="x" * 10, dialogue=True, voice_b="nova")
+    assert ok.dialogue is True and ok.voice_b == "nova"
+    with pytest.raises(ValidationError):
+        StoryboardRequest(prompt="x" * 10, voice_b="LOUD VOICE")
+
+
+# ---------------------------------------------------------------- social autopilot
+def test_social_post_builtin_returns_draft():
+    import asyncio
+    from app.services.plugins.tools import execute_tool
+
+    out = asyncio.run(execute_tool(None, "u1", "social_post", {"network": "x", "caption": "My film!", "url": "https://app/f/1"}))
+    assert out["posted"] is False and out["caption"] == "My film!" and out["network"] == "x"
+    assert "connectors" in out["how_to"]
+
+
+def test_social_post_requires_caption_and_url():
+    import asyncio
+    from app.services.plugins.tools import execute_tool, PluginError
+
+    with pytest.raises(PluginError):
+        asyncio.run(execute_tool(None, "u1", "social_post", {"caption": "no link"}))
+
+
+def test_social_draft_request_validation():
+    from app.schemas import SocialDraftRequest
+
+    assert SocialDraftRequest(network="threads").network == "threads"
+    with pytest.raises(ValidationError):
+        SocialDraftRequest(network="tiktok")   # not staged until connector exists

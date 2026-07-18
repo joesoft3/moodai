@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AudioLines, Clapperboard, FolderOpen, Image as ImageIcon, LogOut, Menu, MessageSquare, Puzzle, Settings, ShieldCheck, Telescope } from "lucide-react";
+import ThemeToggle from "@/components/ThemeToggle";
 import ConversationList from "./ConversationList";
 import { API, apiFetch, token } from "@/lib/api";
 import { applyAccent, applyFavicon, BrandMark } from "@/lib/brand";
@@ -140,6 +141,7 @@ export default function AppShell({
             <ShieldCheck size={16} /> Owner
           </Link>
         )}
+        <ThemeToggle />
         <button
           onClick={logout}
           className="touch-manipulation w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-gray-500 hover:text-red-400 transition"
@@ -191,6 +193,7 @@ export default function AppShell({
             <Menu size={20} />
           </button>
           <h1 className="flex-1 text-sm font-semibold truncate">{title}</h1>
+          <ThemeToggle compact />
           {headerRight}
         </header>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clapperboard, Clapperboard as FilmIcon, Copy, Loader2, PencilLine, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { Clapperboard, Clapperboard as FilmIcon, Copy, Loader2, Megaphone, PencilLine, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
 
@@ -21,9 +21,10 @@ interface Film {
   subtitles: boolean;
   url: string;
   poster: string;
+  views?: number;
   script: string | null;
   note: string | null;
-  scenes: { shot: string; narration: string }[];
+  scenes: { shot: string; narration: string; voice?: string }[];
   created_at: string | null;
 }
 
@@ -60,6 +61,8 @@ export default function FilmsPage() {
   const [films, setFilms] = useState<Film[] | null>(null);
   const [jobsRunning, setJobsRunning] = useState(0);
   const [msg, setMsg] = useState("");
+  const [shareMenuFor, setShareMenuFor] = useState<string | null>(null);
+  const [postBusy, setPostBusy] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -103,6 +106,23 @@ export default function FilmsPage() {
       await load();
     } catch (e: any) {
       setMsg("⚠️ " + (e.message ?? "Resume failed"));
+    }
+  }
+
+  async function postDraft(id: string, network: "x" | "threads" | "youtube_shorts") {
+    setPostBusy(true);
+    setShareMenuFor(null);
+    try {
+      const r = await apiFetch<{ inbox: string; draft: { caption: string } }>(`/media/films/${id}/social-draft`, {
+        method: "POST",
+        body: JSON.stringify({ network }),
+      });
+      setMsg(`📣 Caption drafted — approve it in the ${r.inbox}. Nothing posts without you.`);
+      setTimeout(() => setMsg(""), 6000);
+    } catch (e: any) {
+      setMsg("⚠️ " + (e.message ?? "Draft failed"));
+    } finally {
+      setPostBusy(false);
     }
   }
 
@@ -177,6 +197,7 @@ export default function FilmsPage() {
                       {chip(f.aspect_ratio)}
                       {chip(f.style.replace("_", " "))}
                       {f.subtitles && chip("💬 subs")}
+                      {(f.views ?? 0) > 0 && chip(`👁 ${f.views}`)}
                       {f.audio !== "none" &&
                         chip(f.audio === "voice+ambience" ? `🎼 voice + ${f.music}` : "🎙 voiceover", true)}
                     </div>
@@ -187,17 +208,44 @@ export default function FilmsPage() {
                     <div className="flex items-center gap-1.5 pt-1">
                       {f.status === "done" && f.url && (
                         <>
-                          <button
-                            onClick={() => copyLink(`${window.location.origin}/f/${f.id}`)}
-                            className="rounded-lg bg-white/5 border border-line px-2.5 py-1 text-[11px] text-gray-300 hover:bg-white/10 transition flex items-center gap-1"
-                          >
-                            <Copy size={11} /> Share
-                          </button>
+                          {shareMenuFor === f.id ? (
+                            <span className="flex items-center gap-1 rounded-lg border border-accent/30 bg-accent/5 px-1.5 py-0.5">
+                              {(["x", "threads", "youtube_shorts"] as const).map((n) => (
+                                <button
+                                  key={n}
+                                  disabled={postBusy}
+                                  onClick={() => postDraft(f.id, n)}
+                                  className="text-[10px] text-accent px-1.5 py-0.5 rounded hover:bg-accent/10 transition disabled:opacity-40"
+                                >
+                                  {n === "x" ? "𝕏" : n === "threads" ? "Threads" : "Shorts"}
+                                </button>
+                              ))}
+                              <button onClick={() => setShareMenuFor(null)} className="text-gray-500 px-1" aria-label="Close share menu">
+                                <X size={10} />
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => copyLink(`${window.location.origin}/f/${f.id}`)}
+                              className="rounded-lg bg-white/5 border border-line px-2.5 py-1 text-[11px] text-gray-300 hover:bg-white/10 transition flex items-center gap-1"
+                            >
+                              <Copy size={11} /> Share
+                            </button>
+                          )}
+                          {shareMenuFor !== f.id && (
+                            <button
+                              onClick={() => setShareMenuFor(f.id)}
+                              className="rounded-lg bg-white/5 border border-line px-2.5 py-1 text-[11px] text-gray-300 hover:bg-white/10 transition flex items-center gap-1"
+                              title="Draft a caption & stage it in your ✋ inbox"
+                            >
+                              <Megaphone size={11} /> Post
+                            </button>
+                          )}
                           <a
                             href={`/images?story=${f.id}`}
                             className="rounded-lg bg-white/5 border border-line px-2.5 py-1 text-[11px] text-gray-300 hover:bg-white/10 transition flex items-center gap-1"
                           >
-                            <PencilLine size={11} /> Edit & re-render
+                            <PencilLine size={11} /> Edit
                           </a>
                         </>
                       )}

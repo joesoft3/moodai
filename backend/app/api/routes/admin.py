@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
 from ...core.security import hash_password
-from ...db.models import Conversation, Device, Domain, Message, UsageEvent, User, Workspace
+from ...db.models import Conversation, Device, Domain, Film, Message, UsageEvent, User, Workspace
 from ...db.session import get_db
 from ...schemas import AdminFlagUpdate, AdminPasswordReset, AdminPlanUpdate, AdminPushTest, AdminSettingsUpdate
 from ...services import notify, soundtrack
@@ -430,6 +430,20 @@ async def admin_engagement(db: AsyncSession = Depends(get_db), admin: User = Dep
             }
         )
 
+    # Film vanity metrics: most-viewed shared films + music-mood mix (30d)
+    top_films_rows = (
+        await db.execute(
+            select(Film).where(Film.views > 0).order_by(Film.views.desc(), Film.created_at.desc()).limit(5)
+        )
+    ).scalars().all()
+    music_rows = (
+        await db.execute(
+            select(Film.music, func.count(Film.id))
+            .where(Film.created_at >= cutoff, Film.status == "done", Film.audio == "voice+ambience")
+            .group_by(Film.music)
+        )
+    ).all()
+
     return {
         "push": {
             "by_kind": [
@@ -445,5 +459,16 @@ async def admin_engagement(db: AsyncSession = Depends(get_db), admin: User = Dep
             "with_sound_30d": sound_30d,
             "attach_rate": round(min(sound_30d, videos_30d) / videos_30d, 3) if videos_30d else None,
         },
+        "top_films": [
+            {
+                "id": f.id,
+                "title": (f.prompt or "").strip()[:70],
+                "views": f.views,
+                "scenes": f.scene_count,
+                "created_at": f.created_at.isoformat() if f.created_at else None,
+            }
+            for f in top_films_rows
+        ],
+        "music_mix": {m: int(n) for m, n in music_rows},
         "device_activity": activity,
     }

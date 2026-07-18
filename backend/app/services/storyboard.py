@@ -33,6 +33,7 @@ MAX_SCENES = 4
 class Scene:
     shot: str          # visual direction sent to the video provider
     narration: str     # voiceover line spoken over that scene
+    voice: str = "a"   # "a" | "b" — which narrator speaks (dialogue films)
 
 
 @dataclass
@@ -57,7 +58,17 @@ Return STRICT JSON ONLY — an array of {n} objects:
 - The scenes must tell ONE continuous mini-story (setup → build → payoff), consistent style and subject."""
 
 
-def _parse_scenes(raw: str, expected: int) -> list[Scene]:
+DIALOGUE_PROMPT = """You are a film director planning a {n}-scene short (each scene ~{secs}s) with TWO narrators
+trading lines like a trailer conversation: "a" (warm, scene-setting) and "b" (edgy, punchy counters).
+Return STRICT JSON ONLY — an array of {n} objects:
+[{{"shot": "...", "narration": "...", "voice": "a"}}]
+- shot: one dense cinematic video-generation prompt (subject, action, environment, camera move, light), ≤40 words, self-contained per scene.
+- narration: ONE spoken line, ≤{words_per_scene} words, no stage cues.
+- voice: "a" or "b" — alternate speakers so the film feels like a duet (open on "a").
+- The scenes must tell ONE continuous mini-story (setup → build → payoff), consistent style and subject."""
+
+
+def _parse_scenes(raw: str, expected: int, dialogue: bool = False) -> list[Scene]:
     """Tolerantly pull a JSON scene array out of model output."""
     text = raw.strip()
     fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
@@ -78,8 +89,9 @@ def _parse_scenes(raw: str, expected: int) -> list[Scene]:
             continue
         shot = str(item.get("shot", "")).strip()
         narration = str(item.get("narration", "")).strip()
+        voice_tag = str(item.get("voice", "a")).strip().lower()
         if shot:
-            scenes.append(Scene(shot=shot[:400], narration=narration[:200]))
+            scenes.append(Scene(shot=shot[:400], narration=narration[:200], voice="b" if (dialogue and voice_tag == "b") else "a"))
     if not scenes:
         raise StoryboardError("planner scenes had no shots")
     if expected and len(scenes) != expected:
@@ -87,20 +99,21 @@ def _parse_scenes(raw: str, expected: int) -> list[Scene]:
     return scenes
 
 
-async def plan_scenes(prompt: str, count: int, scene_seconds: int) -> list[Scene]:
+async def plan_scenes(prompt: str, count: int, scene_seconds: int, dialogue: bool = False) -> list[Scene]:
     words_per_scene = soundtrack.estimate_word_budget(scene_seconds)
+    template = DIALOGUE_PROMPT if dialogue else PLAN_PROMPT
     try:
         raw = await llm.complete(
             [
-                {"role": "system", "content": PLAN_PROMPT.format(n=count, secs=scene_seconds, words_per_scene=words_per_scene)},
+                {"role": "system", "content": template.format(n=count, secs=scene_seconds, words_per_scene=words_per_scene)},
                 {"role": "user", "content": prompt.strip()},
             ],
             temperature=0.7,
-            max_tokens=520,
+            max_tokens=560,
         )
     except Exception as e:
         raise StoryboardError(f"storyboard planner unavailable ({type(e).__name__})") from e
-    scenes = _parse_scenes(raw, count)
+    scenes = _parse_scenes(raw, count, dialogue)
     budget = soundtrack.estimate_word_budget(scene_seconds)
     for s in scenes:
         s.narration = soundtrack.fit_words(s.narration, budget)
@@ -108,10 +121,18 @@ async def plan_scenes(prompt: str, count: int, scene_seconds: int) -> list[Scene
 
 
 def parse_custom_scenes(raw: list, budget_seconds: int) -> list[Scene]:
-    """User-supplied scenes: 'shot text' or 'shot text || narration line', one per line."""
+    """User scenes: 'shot text' / 'shot text || narration line' per entry, or
+    persisted dicts {"shot", "narration", "voice"} (resume re-mix path)."""
     budget = soundtrack.estimate_word_budget(budget_seconds)
     scenes = []
     for line in raw:
+        if isinstance(line, dict):
+            shot = str(line.get("shot", "")).strip()
+            narr = str(line.get("narration", "")).strip()
+            if shot:
+                scenes.append(Scene(shot=shot[:400], narration=soundtrack.fit_words(narr, budget) if narr else "",
+                                    voice="b" if line.get("voice") == "b" else "a"))
+            continue
         shot, _, narr = str(line).partition("||")
         shot = shot.strip()
         if shot:
@@ -240,13 +261,19 @@ async def generate_storyboard(
     subtitles: bool,
     music: str = "soft",
     tempo: float = 1.0,
+    dialogue: bool = False,
+    voice_b: str = "onyx",
     on_scene: Callable[[int, int], None] | None = None,
     on_plan: Callable[[list], None] | None = None,
 ) -> tuple[StoryboardResult | None, str | None, str | None]:
     """Returns (result, note, fallback_url). On stitch failure result is None and
     fallback_url is scene 1's provider URL — the user always gets a video back."""
     ffbin = soundtrack.ffmpeg_path()
-    scenes = parse_custom_scenes(custom_scenes, scene_seconds) if custom_scenes else await plan_scenes(prompt, scene_count, scene_seconds)
+    scenes = (
+        parse_custom_scenes(custom_scenes, scene_seconds)
+        if custom_scenes
+        else await plan_scenes(prompt, scene_count, scene_seconds, dialogue)
+    )
     scene_count = len(scenes)
     want_voice = audio != "none"
     notes: list[str] = []
@@ -296,12 +323,14 @@ async def generate_storyboard(
             try:
                 from .voice import voice as voice_svc
 
-                voice_id = voice_name if voice_name in soundtrack.NARRATION_VOICES else "alloy"
+                voice_a = voice_name if voice_name in soundtrack.NARRATION_VOICES else "alloy"
+                voice_b_id = voice_b if voice_b in soundtrack.NARRATION_VOICES else "onyx"
                 voices = []
                 for i, sc in enumerate(scenes):
                     path = os.path.join(work, f"voice{i}.mp3")
                     if sc.narration.strip():
-                        audio_bytes = await voice_svc.synthesize(sc.narration, voice_id, tempo)
+                        scene_voice = voice_b_id if (dialogue and sc.voice == "b") else voice_a
+                        audio_bytes = await voice_svc.synthesize(sc.narration, scene_voice, tempo)
                         with open(path, "wb") as fh:
                             fh.write(audio_bytes)
                     else:

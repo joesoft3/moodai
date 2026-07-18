@@ -187,6 +187,8 @@ export default function ImagesPage() {
   const [storySeconds, setStorySeconds] = useState(6);        // per-scene seconds
   const [subtitles, setSubtitles] = useState(false);
   const [customScenes, setCustomScenes] = useState("");
+  const [dialogue, setDialogue] = useState(false);
+  const [voiceB, setVoiceB] = useState("onyx");
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [info, setInfo] = useState("");
   const [enhancing, setEnhancing] = useState(false);
@@ -323,6 +325,7 @@ export default function ImagesPage() {
             prompt: p, scenes: storyScenes, scene_seconds: storySeconds,
             aspect_ratio: aspect, quality, style, negative_prompt: negative,
             audio: audioMode, voice: voiceId, music, tempo, subtitles,
+            dialogue: audioMode !== "none" && dialogue, voice_b: voiceB,
             custom_scenes: useCustom ? sceneLines : null,
           }),
           signal: ac.signal,
@@ -492,6 +495,33 @@ export default function ImagesPage() {
                     <span className="text-[10px] text-gray-600 ml-auto">loudness-polished · EBU R128</span>
                   </div>
                   <ChipRow label="⏱ Tempo" value={tempo} onChange={setTempo} options={TEMPOS} />
+                  {storyScenes > 1 && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="flex items-center gap-2 text-[11px] text-gray-400 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={dialogue}
+                          onChange={(e) => setDialogue(e.target.checked)}
+                          className="accent-[#7c9bff]"
+                        />
+                        👥 Dialogue film — two narrators trade lines
+                      </label>
+                      {dialogue && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-gray-600">Voice B:</span>
+                          <select
+                            value={voiceB}
+                            onChange={(e) => setVoiceB(e.target.value)}
+                            className="rounded-lg bg-panel border border-line px-2 py-1 text-[11px] text-gray-300 outline-none focus:border-accent/60"
+                          >
+                            {VOICES.map((v) => (
+                              <option key={v.v} value={v.v}>{v.label}</option>
+                            ))}
+                          </select>
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {storyScenes === 1 ? (
                     <textarea
                       value={narration}
