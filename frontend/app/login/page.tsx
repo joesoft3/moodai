@@ -93,6 +93,11 @@ export default function LoginPage() {
             {mode === "login" ? "Sign up" : "Sign in"}
           </button>
         </p>
+        <p className="text-[11px] text-center text-gray-600">
+          By continuing you agree to the{" "}
+          <a href="/terms" className="underline hover:text-gray-400">Terms of Service</a> and{" "}
+          <a href="/privacy" className="underline hover:text-gray-400">Privacy Policy</a>.
+        </p>
       </div>
     </div>
   );

@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Mood AI — CI test gate: backend unit tests (pytest) + frontend typecheck (tsc).
+# Fast, no external services (no Postgres/Redis/Qdrant) — pure unit level.
+# Runtime-smoke against a deployed stack: .github/workflows/live-smoke.yml.
+# Mobile deep-build: .github/workflows/mobile-apk.yml (tags + dispatch).
+# ─────────────────────────────────────────────────────────────────────────────
+name: test
+
+on:
+  push:
+    branches: [main]
+    paths: ["backend/**", "frontend/**", ".github/workflows/test.yml"]
+  pull_request:
+    paths: ["backend/**", "frontend/**"]
+  workflow_dispatch: {}
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend deps (+ pytest)
+        run: pip install -q -r backend/requirements.txt pytest
+
+      - name: Compile-check every backend module
+        run: find backend/app -name "*.py" -exec python -m py_compile {} +
+
+      - name: pytest — unit
+        run: pytest backend/tests -q
+
+  web-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install web deps
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund --loglevel=error
+
+      - name: Typecheck (tsc --noEmit)
+        working-directory: frontend
+        run: npx --no-install tsc --noEmit
