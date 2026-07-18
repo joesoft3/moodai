@@ -182,3 +182,47 @@ def notify_arena_done(user_id: str, winner: str | None) -> None:
         f"Your debate just finished{tail}.",
         {"kind": "arena"},
     )
+
+
+# --------------------------------------------------------------------- team-invite email
+async def send_email(db: "AsyncSession", user_id: str, to: str, subject: str, body: str) -> bool:
+    """Send plain-text email as `user_id` via their connected Gmail plugin.
+
+    Best-effort convenience for workspace invites: gracefully returns False when
+    Gmail isn't connected or the send fails — callers report `failed` recipients.
+    (Restored after the Phase-1 FCM rewrite dropped it while workspaces.py still
+    depended on it — caught by the app-boot import smoke test.)"""
+    from sqlalchemy.ext.asyncio import AsyncSession  # noqa: F401  (type-checking)
+    from sqlalchemy import select as sa_select
+
+    from ..db.models import PluginConnection
+    from .plugins.oauth import access_token
+    from .plugins.registry import get_provider
+
+    try:
+        spec = get_provider("gmail")
+    except KeyError:
+        return False
+    conn = await db.scalar(
+        sa_select(PluginConnection).where(
+            PluginConnection.user_id == user_id, PluginConnection.provider == "gmail"
+        )
+    )
+    if not conn:
+        return False
+    try:
+        tok = await access_token(db, spec, conn)  # auto-refreshes + persists
+        raw = f"To: {to}\r\nSubject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
+        b64 = base64.urlsafe_b64encode(raw.encode()).decode()
+        async with httpx.AsyncClient(timeout=20) as h:
+            r = await h.post(
+                f"{spec.api_base}/users/me/messages/send",
+                headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
+                json={"raw": b64},
+            )
+        if r.status_code in (200, 202):
+            return True
+        log.warning("gmail send failed (%s): %s", r.status_code, r.text[:160])
+    except Exception as e:
+        log.warning("gmail send failed for user %s: %s", user_id, e)
+    return False

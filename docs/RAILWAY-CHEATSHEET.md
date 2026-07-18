@@ -27,7 +27,8 @@ Then raw values (get them from your local `.env` / providers):
 ```
 JWT_SECRET   = <same value as your local .env — KEEP IT IDENTICAL or local logins invalidate>
 XAI_API_KEY  = <console.x.ai>
-OPENAI_API_KEY = <optional — voice + 2nd arena contestant>
+OPENAI_API_KEY = <optional — voice + 2nd arena contestant + 🎙 video sound>
+BACKEND_PUBLIC_URL = https://<your-railway-domain>   # needed to serve sound-muxed video files
 GEMINI_API_KEY = <optional — 3rd arena contestant>
 ADMIN_BOOTSTRAP_EMAIL    = admin@mood.local
 ADMIN_BOOTSTRAP_PASSWORD = <your owner password>

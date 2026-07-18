@@ -9,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
 from ...core.security import hash_password
-from ...db.models import Conversation, Domain, Message, UsageEvent, User, Workspace
+from ...db.models import Conversation, Device, Domain, Message, UsageEvent, User, Workspace
 from ...db.session import get_db
-from ...schemas import AdminFlagUpdate, AdminPasswordReset, AdminPlanUpdate, AdminSettingsUpdate
+from ...schemas import AdminFlagUpdate, AdminPasswordReset, AdminPlanUpdate, AdminPushTest, AdminSettingsUpdate
+from ...services import notify, soundtrack
 from ...services.platform_settings import (
     KEY_APP_PASSWORD,
     KEY_SIGNUP_OPEN,
@@ -65,6 +66,7 @@ async def admin_overview(db: AsyncSession = Depends(get_db), admin: User = Depen
             "conversations": await count(Conversation),
             "messages": await count(Message),
             "workspaces": await count(Workspace),
+            "devices": await count(Device),
             "domains_active": int(
                 (await db.scalar(select(func.count(Domain.id)).where(Domain.status == "active"))) or 0
             ),
@@ -77,6 +79,8 @@ async def admin_overview(db: AsyncSession = Depends(get_db), admin: User = Depen
             "registrar": bool(settings.GODADDY_API_KEY and settings.GODADDY_API_SECRET),
             "registrar_env": settings.GODADDY_ENV,
             "voice": bool(settings.OPENAI_API_KEY),
+            "push": bool(settings.FCM_PROJECT_ID and settings.FCM_SERVICE_ACCOUNT_JSON),
+            "cinema_sound": bool(soundtrack.ffmpeg_path()) and bool(settings.OPENAI_API_KEY),
             "plugins": bool(settings.PLUGIN_TOKEN_KEY or settings.JWT_SECRET),
             "platform_cname": bool(settings.PLATFORM_CNAME_TARGET),
         },
@@ -309,3 +313,49 @@ async def admin_analytics(db: AsyncSession = Depends(get_db), admin: User = Depe
         },
         "top_users_month": top_users,
     }
+
+
+# --------------------------------------------------------------------- devices & push (dashboard v2)
+@router.get("/devices")
+async def admin_devices(db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)):
+    """Registered push devices: totals, platform mix, and the most recent registrations."""
+    rows = (
+        await db.execute(select(Device.platform, func.count(Device.id)).group_by(Device.platform))
+    ).all()
+    by_platform = {platform: int(n) for platform, n in rows}
+    recent = (
+        await db.execute(select(Device, User.email).join(User, User.id == Device.user_id).order_by(Device.created_at.desc()).limit(10))
+    ).all()
+    return {
+        "total": sum(by_platform.values()),
+        "by_platform": by_platform,
+        "recent": [
+            {
+                "platform": d.platform,
+                "email": email,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+                "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None,
+            }
+            for d, email in recent
+        ],
+    }
+
+
+@router.post("/push-test")
+async def admin_push_test(req: AdminPushTest, admin: User = Depends(require_admin)):
+    """Send a real push notification to the owner's own registered devices."""
+    if not notify.enabled():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Push not configured — set FCM_PROJECT_ID + FCM_SERVICE_ACCOUNT_JSON on the backend.",
+        )
+    sent = await notify.notify_user(
+        admin.id, "admin_test", req.title.strip() or "🔔 Mood AI push test", req.body.strip(), {"kind": "admin_test"}
+    )
+    if sent == 0:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "No devices delivered — register a device first (Android app signs in once) "
+            "or check FCM credentials. 300s per-kind cooldown may also apply.",
+        )
+    return {"sent": sent}

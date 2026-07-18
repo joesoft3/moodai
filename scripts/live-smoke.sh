@@ -186,6 +186,23 @@ if [ -n "${WEB_URL:-}" ]; then
   fi
 fi
 
+# --- 8) Cinema Sound + Admin v2 routes (v0.3.0) -----------------------------------
+echo "── 8) media files + admin v2 route wiring (v0.3.0) ──"
+# Public media serving: a random but well-formed uuid must 404 (route + name guard live),
+# while a path-traversal attempt must ALSO 404 (never 5xx/redirects).
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$API/media/files/$(printf 'a%.0s' $(seq 1 32)).mp4")
+[ "$code" = "404" ] && pass "media files serving route (uuid 404 as expected)" \
+  || fail "media files route" "expected 404 for unknown uuid, got HTTP $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 --path-as-is "$API/media/files/..%2F..%2Fetc%2Fpasswd")
+{ [ "$code" = "404" ] || [ "$code" = "400" ]; } && pass "media files traversal blocked (HTTP $code)" \
+  || fail "media files traversal" "unexpected HTTP $code"
+# Admin v2 endpoints must exist and demand auth (401/403 — a 404 means old deploy).
+for ep in devices push-test; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X POST "$API/admin/$ep" -H 'Content-Type: application/json' -d '{}')
+  { [ "$code" = "401" ] || [ "$code" = "403" ]; } && pass "admin/$ep wired + auth-gated (HTTP $code)" \
+    || { [ "$code" = "404" ] && fail "admin/$ep" "404 — deploy not on v0.3.0+" || fail "admin/$ep" "HTTP $code"; }
+done
+
 echo "────────────────────────────────────────────"
 if [ "$FAILED" = "0" ]; then
   printf '\033[32mLIVE SMOKE OK\033[0m — every enabled path passed on %s\n' "$BASE"

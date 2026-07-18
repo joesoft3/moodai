@@ -10,7 +10,15 @@ interface ImgItem {
   url: string;
   prompt: string;
   pending?: boolean;
-  meta?: { duration?: number; aspect_ratio?: string; quality?: string; style?: string };
+  meta?: {
+    duration?: number;
+    aspect_ratio?: string;
+    quality?: string;
+    style?: string;
+    audio?: string;      // "none" | "voice" | "voice+ambience"
+    script?: string;     // the AI voiceover actually spoken
+    requestedAudio?: string;
+  };
 }
 
 const STORE_KEY = "mood_images";
@@ -49,13 +57,36 @@ const STAGE_FLOW = [
   [150, "📦 Finalizing (still normal — video is heavy)…"],
 ] as const;
 
-function VideoPendingTile() {
+const SOUND_STAGE_FLOW = [
+  [0, "🎬 Storyboarding with director model…"],
+  [8, "🧠 Compiling style + camera language…"],
+  [20, "🎞 Rendering frames…"],
+  [60, "🎙 Writing + recording the AI voiceover…"],
+  [90, "🎚 Mixing voice, ambience & loudness polish…"],
+  [150, "📦 Finalizing (still normal — video is heavy)…"],
+] as const;
+
+const VOICES: { v: string; label: string }[] = [
+  { v: "alloy", label: "🎙 Alloy · neutral" },
+  { v: "nova", label: "✨ Nova · warm fem" },
+  { v: "shimmer", label: "🌟 Shimmer · bright fem" },
+  { v: "echo", label: "🗣 Echo · smooth masc" },
+  { v: "onyx", label: "🖤 Onyx · deep masc" },
+  { v: "fable", label: "📖 Fable · storyteller" },
+  { v: "sage", label: "🌿 Sage · calm" },
+  { v: "ash", label: "🌫 Ash · soft masc" },
+  { v: "coral", label: "🪸 Coral · upbeat fem" },
+  { v: "verse", label: "🎬 Verse · trailer" },
+];
+
+function VideoPendingTile({ sound }: { sound?: boolean }) {
   const [secs, setSecs] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setSecs((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, []);
-  const stage = [...STAGE_FLOW].reverse().find(([t]) => secs >= t)?.[1] ?? STAGE_FLOW[0][1];
+  const flow = sound ? SOUND_STAGE_FLOW : STAGE_FLOW;
+  const stage = [...flow].reverse().find(([t]) => secs >= t)?.[1] ?? flow[0][1];
   return (
     <div className="aspect-video rounded-xl border border-line bg-panel animate-pulse flex flex-col items-center justify-center gap-2 px-4">
       <Loader2 size={22} className="animate-spin text-accent" />
@@ -100,6 +131,11 @@ export default function ImagesPage() {
   const [style, setStyle] = useState("cinematic");
   const [negative, setNegative] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // cinema sound options
+  const [audioMode, setAudioMode] = useState<"none" | "narration" | "cinema">("cinema");
+  const [voiceId, setVoiceId] = useState("alloy");
+  const [narration, setNarration] = useState("");
+  const [info, setInfo] = useState("");
   const [enhancing, setEnhancing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -160,21 +196,28 @@ export default function ImagesPage() {
     const p = prompt.trim();
     if (!p) return;
     setError("");
-    const meta = { duration, aspect_ratio: aspect, quality, style };
+    setInfo("");
+    const meta: ImgItem["meta"] = { duration, aspect_ratio: aspect, quality, style, requestedAudio: audioMode };
     const tmpId = "pending-" + Date.now();
     setVideos((it) => [{ id: tmpId, url: "", prompt: p, pending: true, meta }, ...it]);
     const ac = new AbortController();
     abortRef.current = ac;
     const to = setTimeout(() => ac.abort(), 6 * 60 * 1000);
     try {
-      const res = await apiFetch<{ url: string }>("/media/videos", {
+      const res = await apiFetch<{ url: string; audio?: string; script?: string | null; note?: string | null }>("/media/videos", {
         method: "POST",
-        body: JSON.stringify({ prompt: p, duration, aspect_ratio: aspect, quality, style, negative_prompt: negative }),
+        body: JSON.stringify({
+          prompt: p, duration, aspect_ratio: aspect, quality, style, negative_prompt: negative,
+          audio: audioMode, voice: voiceId, narration: narration.trim(),
+        }),
         signal: ac.signal,
       });
       setPrompt("");
+      if (res.note) setInfo(`ℹ️ ${res.note}`);
+      if (res.audio && res.audio !== "none") setInfo(`🔊 ${res.audio === "voice+ambience" ? "Voice + ambience" : "Voice"} soundtrack mixed — loudness-polished. 🎧`);
+      const doneMeta: ImgItem["meta"] = { ...meta, audio: res.audio ?? "none", script: res.script ?? undefined };
       setVideos((it) => {
-        const next = it.map((i) => (i.id === tmpId ? { id: tmpId.replace("pending", "vid"), url: res.url, prompt: p, meta } : i));
+        const next = it.map((i) => (i.id === tmpId ? { id: tmpId.replace("pending", "vid"), url: res.url, prompt: p, meta: doneMeta } : i));
         persistVideos(next);
         return next;
       });
@@ -262,6 +305,42 @@ export default function ImagesPage() {
                 options={[{ v: "720p", label: "720p" }, { v: "1080p", label: "1080p ✨" }]} />
               <ChipRow label="Style" value={style} onChange={setStyle}
                 options={STYLES.map((s) => ({ v: s.id, label: s.label }))} />
+              <ChipRow label="🔊 Sound" value={audioMode} onChange={setAudioMode}
+                options={[
+                  { v: "none" as const, label: "🔇 None" },
+                  { v: "narration" as const, label: "🎙 AI voiceover" },
+                  { v: "cinema" as const, label: "🎼 Voice + ambience" },
+                ]} />
+              {audioMode !== "none" && (
+                <div className="rounded-xl bg-base border border-line p-3 space-y-2.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] text-gray-500 w-16 shrink-0">Voice</span>
+                    <select
+                      value={voiceId}
+                      onChange={(e) => setVoiceId(e.target.value)}
+                      className="rounded-lg bg-panel border border-line px-2 py-1 text-[11px] text-gray-300 outline-none focus:border-accent/60"
+                    >
+                      {VOICES.map((v) => (
+                        <option key={v.v} value={v.v}>{v.label}</option>
+                      ))}
+                    </select>
+                    <span className="text-[10px] text-gray-600 ml-auto">loudness-polished · EBU R128</span>
+                  </div>
+                  <textarea
+                    value={narration}
+                    onChange={(e) => setNarration(e.target.value)}
+                    rows={2}
+                    maxLength={600}
+                    placeholder="Optional: write the exact voiceover… leave blank and the director model writes one sized to your clip."
+                    className="w-full rounded-lg bg-panel border border-line px-2.5 py-1.5 text-[11px] outline-none focus:border-accent/60 placeholder-gray-600 resize-none"
+                  />
+                  <p className="text-[10px] text-gray-600">
+                    🎧 Pure sound & voice: AI narration recorded in your chosen voice, mixed{" "}
+                    {audioMode === "cinema" ? "over a soft ambient bed (and any sound the clip already has) " : ""}
+                    by our ffmpeg mixer.
+                  </p>
+                </div>
+              )}
               <button
                 onClick={() => setShowAdvanced(!showAdvanced)}
                 className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-300 transition"
@@ -315,6 +394,7 @@ export default function ImagesPage() {
             </button>
           </div>
           {error && <p className="text-sm text-red-400">{error}</p>}
+          {info && <p className="text-sm text-accent">{info}</p>}
 
           {/* Gallery: 2 cols phone, 3 tablet, 4 desktop, 5 ultrawide */}
           {mode === "video" ? (
@@ -322,7 +402,7 @@ export default function ImagesPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {videos.map((v) =>
                   v.pending ? (
-                    <VideoPendingTile key={v.id} />
+                    <VideoPendingTile key={v.id} sound={(v.meta?.requestedAudio ?? "none") !== "none"} />
                   ) : (
                     <div key={v.id} className="rounded-xl overflow-hidden border border-line bg-panel">
                       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
@@ -343,7 +423,17 @@ export default function ImagesPage() {
                                   {chip}
                                 </span>
                               ))}
+                            {v.meta.audio && v.meta.audio !== "none" && (
+                              <span className="text-[10px] rounded-full bg-accent/10 border border-accent/30 px-2 py-0.5 text-accent">
+                                {v.meta.audio === "voice+ambience" ? "🎼 voice + ambience" : "🎙 AI voiceover"}
+                              </span>
+                            )}
                           </div>
+                        )}
+                        {v.meta?.script && (
+                          <p className="text-[10px] text-gray-500 italic line-clamp-2 border-l-2 border-accent/30 pl-2">
+                            “{v.meta.script}”
+                          </p>
                         )}
                       </div>
                     </div>
@@ -353,8 +443,8 @@ export default function ImagesPage() {
             ) : (
               <div className="text-center text-gray-600 pt-20 space-y-2">
                 <div className="text-4xl">🎬</div>
-                <p className="text-sm">Text-to-video, professionally: pick a template, tune duration / aspect / style, ✨ Enhance, generate.</p>
-                <p className="text-[11px]">Generation can take 1–5 minutes. Daily limits apply per plan.</p>
+                <p className="text-sm">Text-to-video with pure sound & voice: pick a template, tune duration / aspect / style, add an 🎙 AI voiceover or 🎼 full cinema mix, ✨ Enhance, generate.</p>
+                <p className="text-[11px]">Generation can take 1–5 minutes (sound adds ~20s). Daily limits apply per plan.</p>
               </div>
             )
           ) : items.length > 0 ? (

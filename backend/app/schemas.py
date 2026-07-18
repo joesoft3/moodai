@@ -129,6 +129,11 @@ class AdminFlagUpdate(BaseModel):
     is_admin: bool
 
 
+class AdminPushTest(BaseModel):
+    title: str = Field(default="🔔 Mood AI push test", max_length=80)
+    body: str = Field(default="If you can read this, push is wired end-to-end. 🎉", max_length=240)
+
+
 class ImageRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=2000)
 
@@ -140,6 +145,10 @@ class VideoRequest(BaseModel):
     quality: str = Field(default="720p", pattern="^(720p|1080p)$")
     style: str = Field(default="cinematic", max_length=40)
     negative_prompt: str = Field(default="", max_length=1000)
+    # Cinema Sound: AI voiceover (+ optional procedural ambience), muxed server-side
+    audio: str = Field(default="none", pattern="^(none|narration|cinema)$")
+    voice: str = Field(default="alloy", pattern="^[a-z]{3,12}$")
+    narration: str = Field(default="", max_length=600)     # empty → AI writes the voiceover
 
 
 class VideoEnhanceRequest(BaseModel):

@@ -23,7 +23,7 @@ Mood AI is a full-stack AI super-app scaffold that delivers Grok-style capabilit
 - 📊 Domain analytics — real-time requests & unique users per custom domain (Redis counters, zero migrations)
 - ✉️ Team invites & domain gating — shareable join links (emailed via the owner's Gmail) ; bind a domain and only `@company.com` emails can join
 - ✋ Human-in-the-loop — write actions (send email, create event/issue) wait for in-chat approval
-- 🎬 **Professional video studio** — duration/aspect/quality/style presets, negative prompts, ✨ prompt enhancer, templates (xAI video, provider seam) · 🐍 Python sandbox tool
+- 🎬 **Professional video studio with 🎙 Cinema Sound** — duration/aspect/quality/style presets, negative prompts, ✨ prompt enhancer, templates (xAI video, provider seam) **plus AI voiceovers (10 voices) + ambient bed, loudness-polished and muxed server-side with ffmpeg — see [docs/VIDEO-SOUND.md](docs/VIDEO-SOUND.md)** · 🐍 Python sandbox tool
 - 📱 Flutter mobile client (login + streaming chat) in `mobile/`
 - 🔗 Share conversations via revocable public links · 📊 usage dashboard (tokens vs. plan tiers)
 - 🔒 JWT auth, Redis rate limiting, Stripe subscription hooks
@@ -126,8 +126,10 @@ mood-ai/
 | GET | `/api/v1/share/{token}` | **public** read of a shared conversation |
 | GET/DELETE | `/api/v1/plugins[/{provider}]` | list / connect / disconnect OAuth apps |
 | POST | `/api/v1/plugins/actions/{id}/approve\|reject` | human-in-the-loop write actions |
-| POST | `/api/v1/media/videos` | pro video generation (plan-capped, metered) |
+| POST | `/api/v1/media/videos` | pro video generation (plan-capped, metered) · `audio=narration\|cinema` for 🎙 AI voiceover + 🎼 ambience |
+| GET | `/api/v1/media/files/{name}` | public streaming of muxed (sound-finished) videos, 24 h TTL |
 | POST | `/api/v1/media/videos/enhance` | ✨ professional video-prompt rewrite |
+| GET/POST | `/api/v1/admin/devices` · `/push-test` | owner dashboard v2: push device stats · send a test notification |
 | WS | `/api/v1/voice/ws?token=` | realtime voice session (chunks in, deltas+TTS out) |
 | GET/POST | `/api/v1/workspaces[...]` | teams: create, members, shared convos, seat usage |
 | POST | `/api/v1/workspaces/{id}/invites` · `/join` | invite links (owner) · redeem (domain-gated) |

@@ -32,9 +32,9 @@ class VoiceService:
         )
         return (transcript.text or "").strip()
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str, voice_name: str | None = None) -> bytes:
         resp = await self.client.audio.speech.create(
-            model=settings.TTS_MODEL, voice=settings.TTS_VOICE, input=text[:4000]
+            model=settings.TTS_MODEL, voice=voice_name or settings.TTS_VOICE, input=text[:4000]
         )
         return resp.content
 

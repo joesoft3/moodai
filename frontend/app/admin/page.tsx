@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Activity, BarChart3, KeyRound, Puzzle, RefreshCw, Search, ShieldCheck, Trash2, UserCog, Users } from "lucide-react";
+import { Activity, BarChart3, Bell, KeyRound, Puzzle, RefreshCw, Search, Send, ShieldCheck, Smartphone, Trash2, UserCog, Users } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
 
@@ -11,6 +11,7 @@ interface Overview {
     conversations: number;
     messages: number;
     workspaces: number;
+    devices?: number;
     domains_active: number;
     tokens_month: number;
     active_users_week: number;
@@ -34,6 +35,12 @@ interface Gate {
   signup_open: boolean;
   app_password_set: boolean;
   admin_emails: string[];
+}
+
+interface DevicesInfo {
+  total: number;
+  by_platform: Record<string, number>;
+  recent: { platform: string; email: string; created_at: string | null; last_seen_at: string | null }[];
 }
 
 interface Analytics {
@@ -91,26 +98,49 @@ export default function AdminPage() {
   const [newPw, setNewPw] = useState("");
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [devices, setDevices] = useState<DevicesInfo | null>(null);
+  const [pushTitle, setPushTitle] = useState("🔔 Mood AI push test");
+  const [pushBody, setPushBody] = useState("If you can read this, push is wired end-to-end. 🎉");
+  const [pushMsg, setPushMsg] = useState("");
+  const [pushBusy, setPushBusy] = useState(false);
   const [q, setQ] = useState("");
   const [userMsg, setUserMsg] = useState("");
 
   const loadAll = useCallback(async () => {
     try {
-      const [o, g, u, a] = await Promise.all([
+      const [o, g, u, a, d] = await Promise.all([
         apiFetch<Overview>("/admin/overview"),
         apiFetch<Gate>("/admin/settings"),
         apiFetch<{ users: AdminUser[] }>(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ""}`),
         apiFetch<Analytics>("/admin/analytics"),
+        apiFetch<DevicesInfo>("/admin/devices"),
       ]);
       setOverview(o);
       setGate(g);
       setUsers(u.users);
       setAnalytics(a);
+      setDevices(d);
       setDenied(false);
     } catch (e: any) {
       if ((e.message ?? "").includes("Admin only")) setDenied(true);
     }
   }, [q]);
+
+  async function sendPushTest() {
+    setPushBusy(true);
+    setPushMsg("");
+    try {
+      const r = await apiFetch<{ sent: number }>("/admin/push-test", {
+        method: "POST",
+        body: JSON.stringify({ title: pushTitle, body: pushBody }),
+      });
+      setPushMsg(`✅ Delivered to ${r.sent} of your device${r.sent === 1 ? "" : "s"}.`);
+    } catch (e: any) {
+      setPushMsg("⚠️ " + (e.message ?? "Push test failed"));
+    } finally {
+      setPushBusy(false);
+    }
+  }
 
   useEffect(() => {
     loadAll();
@@ -171,7 +201,7 @@ export default function AdminPage() {
                 <p className="text-sm text-gray-600">Loading…</p>
               ) : (
                 <>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-center">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-center">
                     {(
                       [
                         ["Users", overview.stats.users],
@@ -179,6 +209,7 @@ export default function AdminPage() {
                         ["Conversations", overview.stats.conversations],
                         ["Messages", overview.stats.messages],
                         ["Teams", overview.stats.workspaces],
+                        ["Push devices", overview.stats.devices ?? 0],
                         ["Active domains", overview.stats.domains_active],
                         ["Tokens · month", overview.stats.tokens_month],
                       ] as [string, number][]
@@ -287,6 +318,78 @@ export default function AdminPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+          </Card>
+
+          {/* 🔔 Push & devices (dashboard v2) */}
+          <Card icon={<Bell size={16} />} title="Push & devices">
+            {!devices ? (
+              <p className="text-sm text-gray-600">Loading…</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                  <div className="rounded-xl bg-base border border-line px-2 py-3">
+                    <p className="text-base font-semibold text-gray-100">{fmt(devices.total)}</p>
+                    <p className="text-[10px] text-gray-500">Registered devices</p>
+                  </div>
+                  {Object.entries(devices.by_platform).map(([platform, n]) => (
+                    <div key={platform} className="rounded-xl bg-base border border-line px-2 py-3">
+                      <p className="text-base font-semibold text-gray-100 flex items-center justify-center gap-1">
+                        <Smartphone size={13} className="text-accent" /> {fmt(n)}
+                      </p>
+                      <p className="text-[10px] text-gray-500">{platform}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-xl bg-base border border-line p-3 space-y-2">
+                  <p className="text-[11px] text-gray-500">Send a real test push to YOUR devices</p>
+                  <input
+                    value={pushTitle}
+                    onChange={(e) => setPushTitle(e.target.value)}
+                    maxLength={80}
+                    className="w-full rounded-lg bg-panel border border-line px-3 py-2 text-sm outline-none focus:border-accent/60"
+                    placeholder="Title"
+                  />
+                  <textarea
+                    value={pushBody}
+                    onChange={(e) => setPushBody(e.target.value)}
+                    rows={2}
+                    maxLength={240}
+                    className="w-full rounded-lg bg-panel border border-line px-3 py-2 text-sm outline-none focus:border-accent/60 resize-none"
+                    placeholder="Body"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={sendPushTest}
+                      disabled={pushBusy || !pushTitle.trim()}
+                      className="rounded-xl bg-accent text-black text-sm font-semibold px-4 py-2 disabled:opacity-40 hover:brightness-110 transition flex items-center gap-1.5"
+                    >
+                      <Send size={13} /> {pushBusy ? "Sending…" : "Send test push"}
+                    </button>
+                    {pushMsg && <p className="text-[11px] text-yellow-500">{pushMsg}</p>}
+                  </div>
+                  <p className="text-[10px] text-gray-600">
+                    Needs FCM_PROJECT_ID + FCM_SERVICE_ACCOUNT_JSON on the backend and the Android app signed in once
+                    on your phone (300s per-kind cooldown applies).
+                  </p>
+                </div>
+
+                {devices.recent.length > 0 && (
+                  <div>
+                    <p className="text-[11px] text-gray-500 mb-1.5">Recent registrations</p>
+                    <ul className="space-y-1 text-[11px]">
+                      {devices.recent.map((d, i) => (
+                        <li key={i} className="flex items-center gap-2 rounded-lg bg-base border border-line px-2.5 py-1.5">
+                          <span className="rounded-full border border-line px-2 py-0.5 text-gray-400">{d.platform}</span>
+                          <span className="text-gray-300 truncate">{d.email}</span>
+                          <span className="text-gray-600 ml-auto shrink-0">{(d.last_seen_at ?? d.created_at ?? "").slice(0, 10)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
           </Card>

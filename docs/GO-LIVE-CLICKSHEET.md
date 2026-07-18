@@ -135,5 +135,13 @@ Every line green = done. 🎉 Send me any failing line/URL and I'll diagnose fro
 
 ---
 
+## Part E — Optional hands-free upgrades (paste-ready)
+
+| Upgrade | Where | What |
+|---|---|---|
+| 🎙 **Video sound & voice** | Railway → Variables | `OPENAI_API_KEY=<key>` + `BACKEND_PUBLIC_URL=https://<your-railway-domain>` — then Video Studio's 🔊 **Voice + ambience** just works. Guide: [VIDEO-SOUND](VIDEO-SOUND.md) |
+| 🧪 **Weekly live E2E** | GitHub → Settings → Secrets → Actions | add `LIVE_WEB_URL=https://<netlify-site>` and `LIVE_API_URL=https://<railway-domain>` — every Monday CI signs up a bot on YOUR live app, runs chat/pages/routes, and screenshots failures. |
+| 🔔 **Push notifications** | Firebase + Railway + 1 GitHub secret | 5 console clicks: [PUSH-NOTIFICATIONS](PUSH-NOTIFICATIONS.md) — then Owner panel → **Push & devices → Send test push** proves it end-to-end. |
+
 *References: [RAILWAY-CHEATSHEET](RAILWAY-CHEATSHEET.md) (full env-var catalog) ·
 [NETLIFY-DEPLOY](NETLIFY-DEPLOY.md) (CI secrets path) · [LIVE-SMOKE](LIVE-SMOKE.md) (scripted checks)*

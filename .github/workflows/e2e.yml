@@ -1,0 +1,69 @@
+# Mood AI — weekly live E2E against the REAL deployment (Netlify + Railway).
+# Runs Mondays 05:30 UTC + on demand. No-ops gracefully until LIVE_WEB_URL /
+# LIVE_API_URL are provided (repo secrets or variables, or dispatch inputs).
+name: e2e (live)
+
+on:
+  schedule:
+    - cron: "30 5 * * 1"   # Monday 05:30 UTC
+  workflow_dispatch:
+    inputs:
+      web_url:
+        description: "Web URL override (defaults to LIVE_WEB_URL secret/var)"
+        required: false
+      api_url:
+        description: "API URL override (defaults to LIVE_API_URL secret/var)"
+        required: false
+
+concurrency:
+  group: e2e-live
+  cancel-in-progress: true
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Gate — are live URLs configured?
+        id: gate
+        env:
+          WEB_URL: ${{ inputs.web_url || secrets.LIVE_WEB_URL || vars.LIVE_WEB_URL }}
+          API_URL: ${{ inputs.api_url || secrets.LIVE_API_URL || vars.LIVE_API_URL }}
+        run: |
+          if [ -n "$WEB_URL" ] && [ -n "$API_URL" ]; then
+            echo "live=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "live=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::LIVE_WEB_URL / LIVE_API_URL not configured — weekly E2E dormant until the app is deployed."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.live == 'true'
+        with:
+          node-version: 22
+
+      - name: Install Playwright + Chromium
+        if: steps.gate.outputs.live == 'true'
+        run: |
+          mkdir -p /tmp/e2e-deps && cd /tmp/e2e-deps
+          npm init -y >/dev/null
+          npm install --no-fund --no-audit playwright@1.49.1
+          npx playwright install --with-deps chromium
+
+      - name: Run live E2E
+        if: steps.gate.outputs.live == 'true'
+        env:
+          WEB_URL: ${{ inputs.web_url || secrets.LIVE_WEB_URL || vars.LIVE_WEB_URL }}
+          API_URL: ${{ inputs.api_url || secrets.LIVE_API_URL || vars.LIVE_API_URL }}
+          NODE_PATH: /tmp/e2e-deps/node_modules
+        run: node scripts/e2e.mjs
+
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.gate.outputs.live == 'true'
+        with:
+          name: e2e-screenshots
+          path: e2e-shots/
+          if-no-files-found: ignore
+          retention-days: 14

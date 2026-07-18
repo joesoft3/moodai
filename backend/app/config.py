@@ -135,6 +135,11 @@ class Settings(BaseSettings):
     VIDEO_PROVIDER: str = "xai"
     MODEL_VIDEO: str = "grok-video-1"
     VIDEO_MAX_WAIT_SECONDS: int = 240
+    # Cinema Sound: AI voiceover + ambience muxed onto generated video (ffmpeg)
+    FFMPEG_PATH: str = "ffmpeg"
+    MEDIA_DIR: str = "/tmp/mood-media"      # muxed videos served from /media/files/{name}
+    MEDIA_TTL_HOURS: int = 24               # janitor purges muxed files older than this
+    VIDEO_MAX_DOWNLOAD_MB: int = 256        # cap when pulling the provider clip for muxing
 
     # Code execution sandbox (built-in run_python_code tool)
     SANDBOX_ENABLED: bool = True    # NOT a hardened security boundary — see services/sandbox.py
