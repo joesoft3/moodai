@@ -38,6 +38,25 @@ jobs:
       - name: Flutter version
         run: flutter --version
 
+      - name: Scaffold the android platform (not committed on purpose)
+        working-directory: mobile
+        run: flutter create --platforms=android --project-name mood_ai_mobile --org ai.mood --no-overwrite .
+
+      - name: Grant runtime permissions (release manifest)
+        working-directory: mobile
+        run: |
+          python3 - << 'PY'
+          import pathlib
+          p = pathlib.Path("android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+          perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
+                   '    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n')
+          if "RECORD_AUDIO" not in s:
+              s = s.replace("<application", perms + "    <application", 1)
+              p.write_text(s)
+              print("manifest patched")
+          PY
+
       - name: Pub get
         working-directory: mobile
         run: flutter pub get

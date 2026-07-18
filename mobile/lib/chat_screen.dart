@@ -755,7 +755,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     controller: _scroll,
                     padding: const EdgeInsets.all(12),
                     itemCount: _messages.length,
-                    itemBuilder: (context, i) => _Bubble(_messages[i]),
+                    itemBuilder: (context, i) => _Bubble(
+                          _messages[i],
+                          canRematch: !_busy,
+                          onRematch: _rematch,
+                        ),
                   ),
           ),
           if (_files.isNotEmpty)
@@ -822,8 +826,10 @@ class _ChatScreenState extends State<ChatScreen> {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble(this.msg);
+  const _Bubble(this.msg, {this.canRematch = false, this.onRematch});
   final ChatMsg msg;
+  final bool canRematch; // arena verdict visible + screen not busy
+  final VoidCallback? onRematch;
 
   @override
   Widget build(BuildContext context) {
@@ -904,7 +910,7 @@ class _Bubble extends StatelessWidget {
             ArenaPanel(
               live: msg.arenaLive,
               verdict: msg.arenaData,
-              onRematch: msg.arenaData != null && !_busy ? _rematch : null,
+              onRematch: msg.arenaData != null && canRematch ? onRematch : null,
             ),
           msg.text.isEmpty
               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
