@@ -34,8 +34,12 @@ Mood AI is a full-stack AI super-app scaffold that delivers Grok-style capabilit
 > See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full technical blueprint,
 > model routing strategy, multi-agent design, plugin framework, and scaling roadmap.
 > Ready to ship? **[docs/DEPLOY-WALKTHROUGH.md](docs/DEPLOY-WALKTHROUGH.md)** — zero to live,
-> or ship the web app on **Netlify** ([docs/NETLIFY-DEPLOY.md](docs/NETLIFY-DEPLOY.md)) and
-> prove it with the **live smoke** ([docs/LIVE-SMOKE.md](docs/LIVE-SMOKE.md)).
+> web app on **Netlify** ([docs/NETLIFY-DEPLOY.md](docs/NETLIFY-DEPLOY.md)) · backend on
+> **Railway/Render/VPS** ([docs/BACKEND-HOSTING.md](docs/BACKEND-HOSTING.md)) · verify with the
+> **live smoke** ([docs/LIVE-SMOKE.md](docs/LIVE-SMOKE.md)).
+>
+> 🔁 **Auto-deploys on push**: `deploy-netlify` workflow → Netlify on every `main` push ·
+> `mobile-apk` workflow → tagged releases get an installable Android APK attached.
 
 [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/joesoft3/moodai)
 > custom domain + HTTPS + Stripe Pro in ~45 min.

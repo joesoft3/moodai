@@ -97,7 +97,7 @@ async def plugin_callback(
     error: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    settings_url = f"{settings.FRONTEND_URL.rstrip('/')}/settings"
+    settings_url = f"{settings.FRONTEND_URL.rstrip('/')}/plugins"
     if error or not code or not state:
         return RedirectResponse(f"{settings_url}?plugin=error")
     user_id, state_provider = _decode_state(state)
@@ -149,6 +149,39 @@ async def disconnect_plugin(
 
 
 # ---------------- human-in-the-loop: approve / reject staged write actions ----------------
+
+_TOOL_LABELS: dict[str, tuple[str, str]] = {
+    "send_email": ("📧", "Send email"),
+    "create_calendar_event": ("📅", "Create calendar event"),
+    "create_issue": ("🐙", "Create GitHub issue"),
+}
+
+
+@router.get("/actions/pending")
+async def list_pending_actions(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Staged write actions awaiting approval — the plugin-store inbox."""
+    rows = (
+        await db.execute(
+            select(PendingAction)
+            .where(PendingAction.user_id == user.id, PendingAction.status == "pending")
+            .order_by(PendingAction.created_at.desc())
+            .limit(50)
+        )
+    ).scalars().all()
+    return {
+        "actions": [
+            {
+                "id": a.id,
+                "tool": a.tool,
+                "icon": _TOOL_LABELS.get(a.tool, ("🧩", a.tool))[0],
+                "label": _TOOL_LABELS.get(a.tool, ("🧩", a.tool))[1],
+                "args": a.args or {},
+                "conversation_id": a.conversation_id,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+            }
+            for a in rows
+        ]
+    }
 
 
 async def _owned_action(db: AsyncSession, user: User, action_id: str) -> PendingAction:

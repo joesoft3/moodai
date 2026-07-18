@@ -8,7 +8,9 @@ Pick one path — all assume your `.env` is provisioned (`scripts/provision-env.
 ## Path A — Railway (easiest, ~10 min)
 
 1. [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo** → `joesoft3/moodai`.
-2. Railway detects `backend/Dockerfile` only if you set the service **Root Directory** to `backend`.
+2. The repo ships **`railway.toml`** at the root — it points the builder at `backend/Dockerfile`,
+   sets the `/healthz` healthcheck, and adds restart policy. **No root-directory fiddling needed.**
+   (If Railway ever ignores it: Settings → Build → Dockerfile path = `backend/Dockerfile`.)
 3. Add the data services from the Railway catalog: **PostgreSQL**, **Redis**, and a
    template service for **Qdrant** (image `qdrant/qdrant`, port 6333, attach a volume at `/qdrant/storage`).
 4. Set env vars on the API service:
