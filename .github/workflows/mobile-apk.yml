@@ -40,7 +40,9 @@ jobs:
 
       - name: Scaffold the android platform (not committed on purpose)
         working-directory: mobile
-        run: flutter create --platforms=android --project-name mood_ai_mobile --org ai.mood --no-overwrite .
+        run: |
+          flutter create --platforms=android --project-name mood_ai_mobile --org ai.mood --no-overwrite .
+          rm -f test/widget_test.dart  # stock template test references a MyApp that isn't ours
 
       - name: Grant runtime permissions (release manifest)
         working-directory: mobile
