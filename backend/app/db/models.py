@@ -277,6 +277,7 @@ class Film(Base):
     tempo: Mapped[float] = mapped_column(Float, default=1.0)
     subtitles: Mapped[bool] = mapped_column(Boolean, default=False)
     filename: Mapped[str] = mapped_column(String(40), default="")
+    poster: Mapped[str] = mapped_column(String(44), default="")        # <uuid>_p.jpg hero frame
     fallback_url: Mapped[str] = mapped_column(String(600), default="")
     script: Mapped[str] = mapped_column(Text, default="")
     note: Mapped[str] = mapped_column(Text, default="")

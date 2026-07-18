@@ -152,3 +152,43 @@ def test_video_request_music_and_tempo_validation():
         VideoRequest(prompt="x" * 10, tempo=1.5)           # above the 1.3 cap
     with pytest.raises(ValidationError):
         VideoRequest(prompt="x" * 10, tempo=0.5)           # below the 0.7 floor
+
+
+# ---------------------------------------------------------------- film posters
+def test_poster_cmd_seeks_to_hero_moment():
+    cmd = soundtrack.build_poster_cmd("ffmpeg", "film.mp4", "out.jpg", 18)
+    assert cmd[cmd.index("-ss") + 1] == "6.30"          # 35% of 18s
+    assert cmd[cmd.index("-frames:v") + 1] == "1"
+    assert cmd[-1] == "out.jpg"
+
+
+def test_poster_cmd_never_seeks_before_zero():
+    cmd = soundtrack.build_poster_cmd("ffmpeg", "clip.mp4", "o.jpg", 0)
+    assert float(cmd[cmd.index("-ss") + 1]) == 0.1
+
+
+def test_poster_name_rules():
+    assert soundtrack.MEDIA_POSTER_RE.match("a" * 32 + "_p.jpg")
+    assert not soundtrack.MEDIA_POSTER_RE.match("a" * 32 + ".jpg")      # missing _p marker
+    assert not soundtrack.MEDIA_POSTER_RE.match("a" * 32 + "_p.mp4")    # posters are jpg
+    assert not soundtrack.MEDIA_POSTER_RE.match("../x_p.jpg")
+
+    import re
+    mp4 = re.compile(r"^[a-f0-9]{32}(_p\.jpg|\.mp4)$")                   # route regex parity
+    for good in ("b" * 32 + ".mp4", "c" * 32 + "_p.jpg"):
+        assert mp4.match(good)
+    for bad in ("d" * 32 + "_p.png", "e" * 31 + ".mp4", "..%2Fetc"):
+        assert not mp4.match(bad)
+
+
+def test_film_out_includes_poster_url():
+    from app.db.models import Film
+    from app.api.routes.media import _film_out
+
+    f = Film(id="f" * 32, user_id="u", prompt="p", status="done", filename="a" * 32 + ".mp4",
+             poster="a" * 32 + "_p.jpg", scene_count=2, scene_seconds=6)
+    out = _film_out(f)
+    assert out["poster"].endswith("/api/v1/media/files/" + "a" * 32 + "_p.jpg")
+    out["poster"] and out["url"]
+    f.poster = ""
+    assert _film_out(f)["poster"] == ""

@@ -83,6 +83,19 @@ Status flow: `rendering` (progress N/scene_count per milestone) → `done`
 pre-loaded as custom scenes — the fastest "regenerate one scene" workflow:
 edit that line, hit Generate (only billed for the new render's scenes).
 
+**Professional extras (v0.6.0):**
+- 🖼 **Film posters** — a hero frame (≈35% through the film, where trailers peak)
+  is extracted server-side and served as `<uuid>_p.jpg`: gallery tiles and
+  `<video poster>` placeholders use it, and it's the share page's OG image.
+- 🌐 **Public share pages** — `GET /media/public/films/{id}` (unguessable-id,
+  finished films only) + the web app's **`/f/{id}`** server-rendered page:
+  OpenGraph video + poster previews in chats/socials, cinematic player card,
+  "direct your own film" CTA, Terms/Privacy footer. Films → **Share** copies it.
+- 🔔 **Completion push** — when a film lands `done`, a `film_ready` FCM
+  notification deep-links into the gallery ("🎬 Your film is ready").
+- 📲 **Mobile Films screen** — drawer → 🎞 Films: poster grid, live render
+  progress, tap-to-play fullscreen, share/delete/resume (mirrors web).
+
 ## API
 
 `POST /api/v1/media/videos` (auth, plan-capped, metered — one usage counted even

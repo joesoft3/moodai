@@ -41,6 +41,7 @@ class StoryboardResult:
     scenes: list = field(default_factory=list)   # of Scene
     mode: str = "voice"                          # voice | voice+ambience | none
     subtitles: bool = False
+    poster: str = ""                             # `<uuid>_p.jpg` hero frame in MEDIA_DIR
 
 
 class StoryboardError(Exception):
@@ -363,8 +364,14 @@ async def generate_storyboard(
             else:
                 log.warning("subtitle burn failed (libass?) — delivering clean captions: %s", err)
 
+        # 6) Hero-frame poster for the gallery tile + share OG image
+        poster = ""
+        if ok:
+            total_seconds = scene_seconds * scene_count
+            poster = await soundtrack.extract_poster(ffbin, final, settings.MEDIA_DIR, name, total_seconds)
+
         soundtrack._janitor(settings.MEDIA_DIR)
-        return StoryboardResult(filename=name, scenes=scenes, mode=mode, subtitles=subs_ok), "; ".join(notes) or None, None
+        return StoryboardResult(filename=name, scenes=scenes, mode=mode, subtitles=subs_ok, poster=poster), "; ".join(notes) or None, None
     finally:
         import shutil
         shutil.rmtree(work, ignore_errors=True)

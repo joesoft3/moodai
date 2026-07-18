@@ -16,6 +16,7 @@ def test_app_boots_and_wires_routers():
         "/api/v1/media/videos",
         "/api/v1/media/files/{name}",
         "/api/v1/media/films",
+        "/api/v1/media/public/films/{fid}",
         "/api/v1/media/videos/storyboard",
         "/api/v1/admin/overview",
         "/api/v1/admin/devices",

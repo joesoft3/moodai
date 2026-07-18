@@ -130,6 +130,7 @@ mood-ai/
 | GET | `/api/v1/media/files/{name}` | public streaming of muxed (sound-finished) videos, 24 h TTL |
 | POST | `/api/v1/media/videos/enhance` | ✨ professional video-prompt rewrite |
 | GET/POST/DEL | `/api/v1/media/films[/{id}[/resume]]` | 🎞 async storyboard gallery: poll status, resume stuck renders, delete |
+| GET | `/api/v1/media/public/films/{id}` | 🌐 public finished-film read → SEO share pages `/f/{id}` (OG video + hero poster) |
 | GET/POST | `/api/v1/admin/devices` · `/push-test` · `/engagement` | owner dashboard v2/v3: push device stats · test notification · funnel & sound analytics |
 | WS | `/api/v1/voice/ws?token=` | realtime voice session (chunks in, deltas+TTS out) |
 | GET/POST | `/api/v1/workspaces[...]` | teams: create, members, shared convos, seat usage |

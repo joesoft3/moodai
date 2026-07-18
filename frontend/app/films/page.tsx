@@ -20,6 +20,7 @@ interface Film {
   music: string;
   subtitles: boolean;
   url: string;
+  poster: string;
   script: string | null;
   note: string | null;
   scenes: { shot: string; narration: string }[];
@@ -162,6 +163,8 @@ export default function FilmsPage() {
                     // eslint-disable-next-line jsx-a11y/media-has-caption
                     <video
                       src={f.url}
+                      poster={f.poster || undefined}
+                      preload="none"
                       controls
                       playsInline
                       className={`w-full bg-black ${f.aspect_ratio === "9:16" ? "aspect-[9/16] max-h-[480px] mx-auto" : f.aspect_ratio === "1:1" ? "aspect-square" : "aspect-video"}`}
@@ -185,10 +188,10 @@ export default function FilmsPage() {
                       {f.status === "done" && f.url && (
                         <>
                           <button
-                            onClick={() => copyLink(f.url)}
+                            onClick={() => copyLink(`${window.location.origin}/f/${f.id}`)}
                             className="rounded-lg bg-white/5 border border-line px-2.5 py-1 text-[11px] text-gray-300 hover:bg-white/10 transition flex items-center gap-1"
                           >
-                            <Copy size={11} /> Link
+                            <Copy size={11} /> Share
                           </button>
                           <a
                             href={`/images?story=${f.id}`}

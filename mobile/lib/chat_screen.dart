@@ -8,6 +8,8 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import 'films_screen.dart';
+
 import 'api.dart';
 import 'arena_view.dart';
 import 'login_screen.dart';
@@ -697,6 +699,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               const Divider(height: 1, color: MoodColors.line),
+              ListTile(
+                leading: const Icon(Icons.movie_creation_outlined, size: 18),
+                title: const Text('🎞 Films'),
+                subtitle: const Text('Your storyboard movies', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                onTap: () {
+                  Navigator.of(context).maybePop();
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FilmsScreen()));
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.logout, size: 18),
                 title: const Text('Sign out'),

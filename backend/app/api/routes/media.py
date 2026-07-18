@@ -25,7 +25,7 @@ from ..deps import enforce_rate_limit, get_current_user
 
 router = APIRouter()
 
-SERVED_NAME_RE = re.compile(r"^[a-f0-9]{32}\.mp4$")
+SERVED_NAME_RE = re.compile(r"^[a-f0-9]{32}(_p\.jpg|\.mp4)$")
 
 ENHANCER_PROMPT = """You are a professional AI-video prompt engineer (Veo/Sora/Grok Video grade).
 Rewrite the user's rough idea into ONE dense, production-ready video prompt covering:
@@ -112,8 +112,9 @@ async def serve_muxed_video(name: str):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     path = os.path.join(settings.MEDIA_DIR, name)
     if not os.path.exists(path):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Expired or unknown video (muxed files live 24h)")
-    return FileResponse(path, media_type="video/mp4")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Expired or unknown media (muxed files live 24h)")
+    media_type = "image/jpeg" if name.endswith("_p.jpg") else "video/mp4"
+    return FileResponse(path, media_type=media_type)
 
 
 @router.post("/videos/enhance")
@@ -143,6 +144,33 @@ def _film_out(f: Film) -> dict:
         url = f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/api/v1/media/files/{f.filename}"
     elif f.fallback_url:
         url = f.fallback_url
+    poster = f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/api/v1/media/files/{f.poster}" if f.poster else ""
+    try:
+        scenes = json.loads(f.scenes_json or "[]")
+    except json.JSONDecodeError:
+        scenes = []
+    return {
+        "id": f.id,
+        "prompt": f.prompt,
+        "status": f.status,
+        "progress": f.progress,
+        "scene_count": f.scene_count,
+        "scene_seconds": f.scene_seconds,
+        "aspect_ratio": f.aspect,
+        "quality": f.quality,
+        "style": f.style,
+        "audio": f.audio,
+        "voice": f.voice_id,
+        "music": f.music,
+        "tempo": f.tempo,
+        "subtitles": bool(f.subtitles),
+        "url": url,
+        "poster": poster,
+        "script": f.script or None,
+        "note": f.note or None,
+        "scenes": scenes,
+        "created_at": f.created_at.isoformat() if f.created_at else None,
+    }
     try:
         scenes = json.loads(f.scenes_json or "[]")
     except json.JSONDecodeError:
@@ -315,3 +343,27 @@ async def delete_film(fid: str, db: AsyncSession = Depends(get_db), user: User =
     await db.delete(film)
     await db.commit()
     return None
+
+
+@router.get("/public/films/{fid}")
+async def public_film(fid: str, db: AsyncSession = Depends(get_db)):
+    """Public read of a FINISHED film — powers the /f/{id} share page SEO + player.
+
+    No auth (film ids are 128-bit unguessable, matching the public media files).
+    Rendering/failed films stay private — a share link exists only when the film did."""
+    film = await db.get(Film, fid)
+    if not film or film.status != "done" or not (film.filename or film.fallback_url):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No shareable film with that id")
+    full = _film_out(film)
+    return {
+        "id": film.id,
+        "title": (film.prompt or "A Mood AI film").strip()[:90],
+        "url": full["url"],
+        "poster": full["poster"],
+        "scenes": film.scene_count,
+        "duration_seconds": film.scene_count * film.scene_seconds,
+        "aspect_ratio": film.aspect,
+        "audio": film.audio,
+        "style": film.style,
+        "created_at": full["created_at"],
+    }

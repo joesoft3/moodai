@@ -199,12 +199,36 @@ async def _probe_streams(ffbin: str, video_in: str) -> bool:
     return proc.returncode == 0 and bool((out or b"").strip())
 
 
+# ---------------------------------------------------------------- film posters
+MEDIA_POSTER_RE = re.compile(r"^[a-f0-9]{32}_p\.jpg$")
+
+
+def build_poster_cmd(ffbin: str, video_in: str, out_jpg: str, seconds: float) -> list[str]:
+    """Grab a hero frame at ~35% through the clip — the moment trailers peak at."""
+    seek = max(0.1, seconds * 0.35)
+    return [
+        ffbin, "-y", "-ss", f"{seek:.2f}", "-i", video_in,
+        "-frames:v", "1", "-q:v", "2", out_jpg,
+    ]
+
+
+async def extract_poster(ffbin: str, video_in: str, media_dir: str, base_name: str, seconds: float) -> str:
+    """Writes `<base>_p.jpg` next to its film; returns the poster name ('' on failure)."""
+    poster = f"{base_name[:-4]}_p.jpg" if base_name.endswith(".mp4") else f"{base_name}_p.jpg"
+    out = os.path.join(media_dir, poster)
+    code, err = await _run(build_poster_cmd(ffbin, video_in, out, seconds), timeout=60)
+    if code != 0 or not os.path.exists(out):
+        log.info("poster extraction skipped: %s", err)
+        return ""
+    return poster
+
+
 def _janitor(media_dir: str) -> None:
     """Purge muxed files older than MEDIA_TTL_HOURS (best effort)."""
     try:
         cutoff = time.time() - settings.MEDIA_TTL_HOURS * 3600
         for name in os.listdir(media_dir):
-            if not MEDIA_NAME_RE.match(name):
+            if not MEDIA_NAME_RE.match(name) and not MEDIA_POSTER_RE.match(name):
                 continue
             path = os.path.join(media_dir, name)
             if os.path.getmtime(path) < cutoff:

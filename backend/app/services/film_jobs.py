@@ -86,6 +86,7 @@ async def _run(film_id: str, kw: dict) -> None:
                 {
                     "status": "done",
                     "filename": result.filename,
+                    "poster": result.poster,
                     "audio": result.mode,
                     "subtitles": bool(result.subtitles),
                     "scenes_json": json.dumps([{"shot": s.shot, "narration": s.narration} for s in result.scenes]),
@@ -105,6 +106,17 @@ async def _run(film_id: str, kw: dict) -> None:
                     "progress": kw["scene_count"],
                 },
             )
+        # 🔔 completion push (best effort — never derails the job)
+        try:
+            from . import notify
+
+            title = "🎬 Your film is ready" if result else "🎬 Film rendered (scene 1 kept)"
+            body_txt = (kw["prompt"] or "Your storyboard").strip()[:90]
+            await notify.notify_user(
+                kw.get("user_id", ""), "film_ready", title, body_txt, {"kind": "film", "screen": "/films"}
+            )
+        except Exception:
+            pass
     except Exception as e:  # noqa: BLE001 — a failed film must never kill the worker loop
         log.warning("film %s failed: %s: %s", film_id, type(e).__name__, e)
         await _set(film_id, {"status": "failed", "note": f"{type(e).__name__}: {str(e)[:300]}"})
