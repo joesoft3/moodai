@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...config import settings
 from ...db.models import User
 from ...db.session import get_db
-from ...schemas import VideoEnhanceRequest, VideoRequest
-from ...services import soundtrack
+from ...schemas import StoryboardRequest, VideoEnhanceRequest, VideoRequest
+from ...services import soundtrack, storyboard
 from ...services.llm import friendly_ai_error, llm
 from ...services.media import STYLE_PRESETS, VideoGenerationError, VideoNotConfigured, VideoOptions, video
 from ...services.metering import PLAN_LIMITS, count_today, record_usage
@@ -84,6 +84,8 @@ async def generate_video(
             elif not note:
                 note = "ffmpeg unavailable on this server — delivered without sound."
     await record_usage(user.id, "video", settings.MODEL_VIDEO)
+    if audio_out != "none":
+        await record_usage(user.id, "media_sound", settings.TTS_MODEL)  # Analytics v3: sound attach rate
     return {
         "url": url,
         "prompt": req.prompt,
@@ -128,3 +130,82 @@ async def enhance_prompt(req: VideoEnhanceRequest, user: User = Depends(get_curr
     if not enhanced:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Enhancer returned nothing")
     return {"enhanced": enhanced}
+
+
+@router.post("/videos/storyboard")
+async def generate_storyboard_endpoint(
+    req: StoryboardRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """🎬 Multi-scene film: director-model scene split → per-scene clips → ffmpeg
+    stitch (normalized concat) → continuous voiceover + ambience (+ burned subs).
+    Every scene counts as one daily video usage; preflight blocks over-cap runs."""
+    await enforce_rate_limit(f"video:{user.id}", 2)
+    custom = storyboard.parse_custom_scenes(req.custom_scenes or [], req.scene_seconds) if req.custom_scenes else None
+    scene_count = len(custom) if custom else req.scenes
+    cap = PLAN_LIMITS.get(user.plan, PLAN_LIMITS["free"])["video_day"]
+    if cap:
+        used = await count_today(db, user.id, "video")
+        if used + scene_count > cap:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                f"This storyboard needs {scene_count} of your {cap} daily videos — only {max(cap - used, 0)} left "
+                f"on the {user.plan} plan. Try fewer scenes or upgrade.",
+            )
+    # Preflight: don't burn N paid generations if the voice provider is absent.
+    audio = req.audio
+    pre_note = None
+    if audio != "none" and not settings.OPENAI_API_KEY:
+        audio = "none"
+        pre_note = "Voice provider not configured (set OPENAI_API_KEY) — filming silent."
+
+    opts = VideoOptions(
+        duration=req.scene_seconds,
+        aspect_ratio=req.aspect_ratio,
+        quality=req.quality,
+        style=req.style if req.style in STYLE_PRESETS else "cinematic",
+        negative_prompt=req.negative_prompt,
+    )
+    try:
+        result, note, fallback_url = await storyboard.generate_storyboard(
+            req.prompt.strip(),
+            scene_count=scene_count,
+            scene_seconds=req.scene_seconds,
+            opts=opts,
+            audio=audio,
+            voice_name=req.voice,
+            custom_scenes=req.custom_scenes,
+            subtitles=req.subtitles,
+        )
+    except storyboard.StoryboardError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
+    except VideoNotConfigured as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
+    except VideoGenerationError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
+
+    scenes_out = [{"shot": s.shot, "narration": s.narration} for s in (result.scenes if result else (custom or []))]
+    if result:
+        url = f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/api/v1/media/files/{result.filename}"
+        audio_out = result.mode
+        subtitles_done = result.subtitles
+    else:
+        url = fallback_url  # stitch failed — scene 1, still a finished clip
+        audio_out = "none"
+        subtitles_done = False
+    final_note = " · ".join(x for x in (pre_note, note) if x) or None
+
+    for _ in range(scene_count):
+        await record_usage(user.id, "video", settings.MODEL_VIDEO)
+    if audio_out != "none":
+        await record_usage(user.id, "media_sound", settings.TTS_MODEL)
+    return {
+        "url": url,
+        "prompt": req.prompt,
+        "model": settings.MODEL_VIDEO,
+        "audio": audio_out,
+        "script": " / ".join(s["narration"] for s in scenes_out if s["narration"]) or None,
+        "note": final_note,
+        "scenes": scenes_out,
+        "subtitles": subtitles_done,
+        "meta": {"scenes": scene_count, "scene_seconds": req.scene_seconds, "aspect_ratio": opts.aspect_ratio, "quality": opts.quality, "style": opts.style},
+    }

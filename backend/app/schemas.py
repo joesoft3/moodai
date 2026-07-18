@@ -155,5 +155,22 @@ class VideoEnhanceRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=2000)
 
 
+class StoryboardRequest(BaseModel):
+    """🎬 Multi-scene film: one idea → N directed scenes stitched + voiced."""
+    prompt: str = Field(min_length=3, max_length=2000)
+    scenes: int = Field(default=3, ge=2, le=4)
+    scene_seconds: int = Field(default=6, ge=5, le=8)
+    aspect_ratio: str = Field(default="16:9", pattern="^(16:9|9:16|1:1)$")
+    quality: str = Field(default="720p", pattern="^(720p|1080p)$")
+    style: str = Field(default="cinematic", max_length=40)
+    negative_prompt: str = Field(default="", max_length=1000)
+    audio: str = Field(default="cinema", pattern="^(none|narration|cinema)$")
+    voice: str = Field(default="alloy", pattern="^[a-z]{3,12}$")
+    subtitles: bool = False
+    # User-supplied scenes: 'shot text' or 'shot text || narration line' per line (2-4 entries)
+    custom_scenes: list[str] | None = Field(default=None, max_length=4)
+
+
 class TTSRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
+    voice: str | None = Field(default=None, pattern="^[a-z]{3,12}$")

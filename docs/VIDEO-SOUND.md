@@ -37,6 +37,32 @@ Options:
   your own (≤600 chars) and the mixer performs exactly that.
 - Result tiles carry a **🎙/🎼 chip** and the spoken script in italics.
 
+## 🎬 Storyboard mode (v0.4.0) — one idea, N directed scenes, one film
+
+Flip **🎬 Scenes** from *Single shot* to a 2/3/4-scene film:
+
+1. **Plan** — the director model splits your idea into 2–4 scenes, each with a
+   dense shot prompt + one voiceover line sized to the scene (setup → build → payoff).
+   You can overrule it in *Advanced* with your own scenes:
+   `shot description || optional narration line`, one per line.
+2. **Render** — each scene clip is generated sequentially (provider-polite), then
+   downloaded and normalized (scale/pad to the aspect, 24 fps).
+3. **Stitch** — one ffmpeg graph concatenates the scenes, lays each scene's voice
+   back-to-back so the story flows across the cuts, adds the ambience bed
+   (cinema mode) and the R128 loudness polish.
+4. **Subtitles** — optional: every scene's narration is burned in as a styled,
+   correctly-timed subtitle cue (libass; graceful skip if unavailable).
+
+Fair use: **each scene counts as one daily video** and the endpoint pre-checks
+your remaining quota *before* spending anything (429 with the math if short).
+Voice preflight: no `OPENAI_API_KEY` → films are shot silent with a note, never
+refunded-after-the-fact. Stitch failure → you get scene 1 (a finished clip), never
+an empty hand.
+
+`POST /api/v1/media/videos/storyboard` — same fields as `/media/videos` plus
+`scenes` (2–4), `scene_seconds` (5–8), `subtitles`, `custom_scenes[]`. Response
+adds the `scenes: [{shot, narration}]` the film was built from + `subtitles: bool`.
+
 ## API
 
 `POST /api/v1/media/videos` (auth, plan-capped, metered — one usage counted even

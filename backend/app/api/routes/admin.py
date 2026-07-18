@@ -359,3 +359,91 @@ async def admin_push_test(req: AdminPushTest, admin: User = Depends(require_admi
             "or check FCM credentials. 300s per-kind cooldown may also apply.",
         )
     return {"sent": sent}
+
+
+# --------------------------------------------------------------------- analytics v3 (engagement)
+@router.get("/engagement")
+async def admin_engagement(db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)):
+    """Push delivery funnel + cinema-sound attach rate + per-device activity (30d)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+    # Push funnel from usage_events written by notify.notify_user
+    rows = (
+        await db.execute(
+            select(UsageEvent.kind, func.count(UsageEvent.id))
+            .where(UsageEvent.created_at >= cutoff, UsageEvent.kind.like("push%"))
+            .group_by(UsageEvent.kind)
+        )
+    ).all()
+    attempts: dict[str, int] = {}
+    delivered: dict[str, int] = {}
+    pruned = 0
+    for kind, n in rows:
+        if kind.startswith("push_attempt:"):
+            attempts[kind.split(":", 1)[1]] = attempts.get(kind.split(":", 1)[1], 0) + int(n)
+        elif kind == "push_prune":
+            pruned += int(n)
+        elif kind.startswith("push:"):
+            delivered[kind.split(":", 1)[1]] = delivered.get(kind.split(":", 1)[1], 0) + int(n)
+    kinds = sorted(set(attempts) | set(delivered))
+    total_attempts = sum(attempts.values())
+    total_delivered = sum(delivered.values())
+
+    # Cinema Sound — attach rate over generated videos
+    videos_30d = int(
+        (await db.scalar(
+            select(func.count(UsageEvent.id)).where(UsageEvent.created_at >= cutoff, UsageEvent.kind == "video")
+        )) or 0
+    )
+    sound_30d = int(
+        (await db.scalar(
+            select(func.count(UsageEvent.id)).where(UsageEvent.created_at >= cutoff, UsageEvent.kind == "media_sound")
+        )) or 0
+    )
+
+    # Per-device activity — newest 15 devices with each owner's 30d event counts
+    devs = (
+        await db.execute(
+            select(Device, User.email).join(User, User.id == Device.user_id).order_by(Device.created_at.desc()).limit(15)
+        )
+    ).all()
+    activity = []
+    for d, email_addr in devs:
+        events_30d = int(
+            (await db.scalar(
+                select(func.count(UsageEvent.id)).where(
+                    UsageEvent.user_id == d.user_id, UsageEvent.created_at >= cutoff, ~UsageEvent.kind.like("push%")
+                )
+            )) or 0
+        )
+        last_event = (
+            await db.scalar(select(func.max(UsageEvent.created_at)).where(UsageEvent.user_id == d.user_id))
+        )
+        activity.append(
+            {
+                "email": email_addr,
+                "platform": d.platform,
+                "registered": d.created_at.isoformat() if d.created_at else None,
+                "last_seen": d.last_seen_at.isoformat() if d.last_seen_at else None,
+                "events_30d": events_30d,
+                "last_event": last_event.isoformat() if last_event else None,
+            }
+        )
+
+    return {
+        "push": {
+            "by_kind": [
+                {"kind": k, "attempts": attempts.get(k, 0), "delivered": delivered.get(k, 0)} for k in kinds
+            ],
+            "attempts_30d": total_attempts,
+            "delivered_30d": total_delivered,
+            "tokens_pruned_30d": pruned,
+            "delivery_rate": round(total_delivered / total_attempts, 3) if total_attempts else None,
+        },
+        "sound": {
+            "videos_30d": videos_30d,
+            "with_sound_30d": sound_30d,
+            "attach_rate": round(min(sound_30d, videos_30d) / videos_30d, 3) if videos_30d else None,
+        },
+        "device_activity": activity,
+    }

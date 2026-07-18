@@ -131,7 +131,8 @@ WEB_URL=https://mood-ai-app.netlify.app scripts/live-smoke.sh https://YOUR-RAILW
 Every line green = done. 🎉 Send me any failing line/URL and I'll diagnose from the logs.
 
 **Then, whenever you want:** 🔑 [real Gmail/Calendar/GitHub connecting](PLUGIN-OAUTH.md) ·
-🌍 [your own domain](CUSTOM-DOMAIN-SETUP.md) · 🏪 Play Store (AAB + signing are already built into every `v*` release — set the `MOOD_UPLOAD_*` secrets when ready).
+🌍 [your own domain](CUSTOM-DOMAIN-SETUP.md) · 🏪 [Play Store submission run](PLAY-STORE-SUBMISSION.md)
+(signed AAB ships on every `v*` tag — set the `MOOD_UPLOAD_*` secrets, then follow the runbook).
 
 ---
 

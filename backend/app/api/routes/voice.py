@@ -14,6 +14,7 @@ from ...schemas import TTSRequest
 from ...services.llm import friendly_ai_error, llm
 from ...services.memory import extract_and_store
 from ...services.metering import estimate_tokens, record_usage
+from ...services.soundtrack import NARRATION_VOICES
 from ...services.recall import update_conversation_summary
 from ...services.voice import VoiceNotConfigured, voice
 from ..deps import enforce_rate_limit, get_current_user
@@ -39,8 +40,10 @@ async def transcribe(file: UploadFile = File(...), user: User = Depends(get_curr
 
 @router.post("/tts")
 async def tts(req: TTSRequest, user: User = Depends(get_current_user)):
+    if req.voice and req.voice not in NARRATION_VOICES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Unknown voice '{req.voice}'")
     try:
-        audio = await voice.synthesize(req.text)
+        audio = await voice.synthesize(req.text, req.voice)
     except VoiceNotConfigured as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
     return Response(content=audio, media_type="audio/mpeg")

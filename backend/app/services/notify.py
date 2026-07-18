@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from sqlalchemy import delete, select
 
 from ..config import settings
-from ..db.models import Device
+from ..db.models import Device, UsageEvent
 from ..db.session import SessionLocal
 
 log = logging.getLogger(__name__)
@@ -132,7 +132,10 @@ def _cooled(user_id: str, kind: str) -> bool:
 
 
 async def notify_user(user_id: str, kind: str, title: str, body: str, data: dict | None = None) -> int:
-    """Fan a notification out to every registered device of the user. Returns devices reached."""
+    """Fan a notification out to every registered device of the user. Returns devices reached.
+
+    Analytics v3: each send attempt lands in usage_events as `push_attempt:{kind}`
+    / `push:{kind}` (delivered) / `push_prune` — the owner funnel lives on those."""
     if not enabled() or _cooled(user_id, kind):
         return 0
     _last_sent[(user_id, kind)] = time.time()  # stamp first so a failure can't spam
@@ -145,12 +148,20 @@ async def notify_user(user_id: str, kind: str, title: str, body: str, data: dict
             tokens = (
                 await s.execute(select(Device.token).where(Device.user_id == user_id))
             ).scalars().all()
+            if tokens:
+                s.add(UsageEvent(user_id=user_id, kind=f"push_attempt:{kind}", model="fcm"))
+            pruned = 0
             for tok in tokens:
                 ok, why = await _send_one(access, tok, title, body, data)
                 if ok:
                     sent += 1
                 elif why in _DEAD:  # prune dead tokens so the table stays lean
+                    pruned += 1
                     await s.execute(delete(Device).where(Device.token == tok))
+            for _ in range(sent):
+                s.add(UsageEvent(user_id=user_id, kind=f"push:{kind}", model="fcm"))
+            for _ in range(pruned):
+                s.add(UsageEvent(user_id=user_id, kind="push_prune", model="fcm"))
             await s.commit()
         return sent
     except Exception as e:  # noqa: BLE001 — push must never take the main flow down

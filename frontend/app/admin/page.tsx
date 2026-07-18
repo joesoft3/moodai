@@ -43,6 +43,25 @@ interface DevicesInfo {
   recent: { platform: string; email: string; created_at: string | null; last_seen_at: string | null }[];
 }
 
+interface Engagement {
+  push: {
+    by_kind: { kind: string; attempts: number; delivered: number }[];
+    attempts_30d: number;
+    delivered_30d: number;
+    tokens_pruned_30d: number;
+    delivery_rate: number | null;
+  };
+  sound: { videos_30d: number; with_sound_30d: number; attach_rate: number | null };
+  device_activity: {
+    email: string;
+    platform: string;
+    registered: string | null;
+    last_seen: string | null;
+    events_30d: number;
+    last_event: string | null;
+  }[];
+}
+
 interface Analytics {
   signups_14d: { day: string; count: number }[];
   active_14d: { day: string; count: number }[];
@@ -99,6 +118,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [devices, setDevices] = useState<DevicesInfo | null>(null);
+  const [engagement, setEngagement] = useState<Engagement | null>(null);
   const [pushTitle, setPushTitle] = useState("🔔 Mood AI push test");
   const [pushBody, setPushBody] = useState("If you can read this, push is wired end-to-end. 🎉");
   const [pushMsg, setPushMsg] = useState("");
@@ -108,18 +128,20 @@ export default function AdminPage() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [o, g, u, a, d] = await Promise.all([
+      const [o, g, u, a, d, en] = await Promise.all([
         apiFetch<Overview>("/admin/overview"),
         apiFetch<Gate>("/admin/settings"),
         apiFetch<{ users: AdminUser[] }>(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ""}`),
         apiFetch<Analytics>("/admin/analytics"),
         apiFetch<DevicesInfo>("/admin/devices"),
+        apiFetch<Engagement>("/admin/engagement"),
       ]);
       setOverview(o);
       setGate(g);
       setUsers(u.users);
       setAnalytics(a);
       setDevices(d);
+      setEngagement(en);
       setDenied(false);
     } catch (e: any) {
       if ((e.message ?? "").includes("Admin only")) setDenied(true);
@@ -385,6 +407,80 @@ export default function AdminPage() {
                           <span className="rounded-full border border-line px-2 py-0.5 text-gray-400">{d.platform}</span>
                           <span className="text-gray-300 truncate">{d.email}</span>
                           <span className="text-gray-600 ml-auto shrink-0">{(d.last_seen_at ?? d.created_at ?? "").slice(0, 10)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
+
+          {/* 📈 Engagement v3 — push funnel · cinema sound · device activity */}
+          <Card icon={<BarChart3 size={16} />} title="Engagement — push funnel · cinema sound (30d)">
+            {!engagement ? (
+              <p className="text-sm text-gray-600">Loading…</p>
+            ) : (
+              <div className="space-y-5">
+                {/* Push funnel */}
+                <div className="rounded-xl bg-base border border-line p-3 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-gray-500">
+                    <span>🔔 Push delivery funnel</span>
+                    <span>
+                      {fmt(engagement.push.attempts_30d)} attempts → {fmt(engagement.push.delivered_30d)} delivered
+                      {engagement.push.delivery_rate !== null && ` · ${(engagement.push.delivery_rate * 100).toFixed(0)}%`}
+                      {engagement.push.tokens_pruned_30d > 0 && ` · 🧹 ${engagement.push.tokens_pruned_30d} dead tokens pruned`}
+                    </span>
+                  </div>
+                  {engagement.push.by_kind.length === 0 ? (
+                    <p className="text-[11px] text-gray-600">No pushes in 30 days — arena verdicts, approvals and owner test pushes land here.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {engagement.push.by_kind.map((row) => (
+                        <li key={row.kind} className="flex items-center gap-2 text-[11px]">
+                          <span className="text-gray-400 w-20 truncate">{row.kind}</span>
+                          <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-accent/70"
+                              style={{ width: `${row.attempts ? Math.max(6, (row.delivered / row.attempts) * 100) : 0}%` }}
+                            />
+                          </div>
+                          <span className="text-gray-500 shrink-0">{row.delivered}/{row.attempts}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Cinema sound attach rate */}
+                <div className="rounded-xl bg-base border border-line p-3 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-gray-500">
+                    <span>🎙 Cinema Sound adoption</span>
+                    <span>
+                      {engagement.sound.with_sound_30d}/{engagement.sound.videos_30d} videos with sound
+                      {engagement.sound.attach_rate !== null && ` · ${(engagement.sound.attach_rate * 100).toFixed(0)}% attach`}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-emerald-400/70"
+                      style={{ width: `${(engagement.sound.attach_rate ?? 0) * 100}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Device activity */}
+                {engagement.device_activity.length > 0 && (
+                  <div>
+                    <p className="text-[11px] text-gray-500 mb-1.5">📱 Device activity (30d events per owner)</p>
+                    <ul className="space-y-1 text-[11px]">
+                      {engagement.device_activity.map((d, i) => (
+                        <li key={i} className="flex items-center gap-2 rounded-lg bg-base border border-line px-2.5 py-1.5">
+                          <span className="rounded-full border border-line px-2 py-0.5 text-gray-400 shrink-0">{d.platform}</span>
+                          <span className="text-gray-300 truncate">{d.email}</span>
+                          <span className="text-gray-600 ml-auto shrink-0">
+                            {d.events_30d} events · seen {(d.last_event ?? d.last_seen ?? "").slice(0, 10) || "—"}
+                          </span>
                         </li>
                       ))}
                     </ul>

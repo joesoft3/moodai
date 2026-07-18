@@ -23,7 +23,7 @@ Mood AI is a full-stack AI super-app scaffold that delivers Grok-style capabilit
 - 📊 Domain analytics — real-time requests & unique users per custom domain (Redis counters, zero migrations)
 - ✉️ Team invites & domain gating — shareable join links (emailed via the owner's Gmail) ; bind a domain and only `@company.com` emails can join
 - ✋ Human-in-the-loop — write actions (send email, create event/issue) wait for in-chat approval
-- 🎬 **Professional video studio with 🎙 Cinema Sound** — duration/aspect/quality/style presets, negative prompts, ✨ prompt enhancer, templates (xAI video, provider seam) **plus AI voiceovers (10 voices) + ambient bed, loudness-polished and muxed server-side with ffmpeg — see [docs/VIDEO-SOUND.md](docs/VIDEO-SOUND.md)** · 🐍 Python sandbox tool
+- 🎬 **Professional video studio with 🎙 Cinema Sound + Storyboard films** — duration/aspect/quality/style presets, negative prompts, ✨ prompt enhancer, templates (xAI video, provider seam), **AI voiceovers (10 voices) + ambient bed, loudness-polished and muxed server-side; storyboard mode splits one idea into 2–4 directed scenes, stitches + voices them into a continuous film with optional burned-in subtitles — see [docs/VIDEO-SOUND.md](docs/VIDEO-SOUND.md)** · 🐍 Python sandbox tool
 - 📱 Flutter mobile client (login + streaming chat) in `mobile/`
 - 🔗 Share conversations via revocable public links · 📊 usage dashboard (tokens vs. plan tiers)
 - 🔒 JWT auth, Redis rate limiting, Stripe subscription hooks

@@ -1,0 +1,124 @@
+"""Storyboard-mode unit tests — planner parsing, SRT timing, stitch argv builder,
+custom scene parsing. No ffmpeg binary, no network, no provider calls."""
+
+import pytest
+from pydantic import ValidationError
+
+from app.schemas import StoryboardRequest, TTSRequest
+from app.services import storyboard
+
+
+# ------------------------------------------------------------------- planning
+def test_parse_scenes_from_fenced_json():
+    raw = 'Here you go!\n```json\n[{"shot": "dawn over the city", "narration": "Every legend starts somewhere."},\n{"shot": "hero on rooftop", "narration": "But this one starts on a roof."}]\n```'
+    scenes = storyboard._parse_scenes(raw, 2)
+    assert len(scenes) == 2
+    assert scenes[0].shot == "dawn over the city"
+    assert scenes[1].narration == "But this one starts on a roof."
+
+
+def test_parse_scenes_tolerates_prose_around_array():
+    raw = 'Sure — [{  "shot": "a", "narration": "b" }] enjoy'
+    scenes = storyboard._parse_scenes(raw, 1)
+    assert len(scenes) == 1 and scenes[0].shot == "a"
+
+
+def test_parse_scenes_rejects_junk_and_empty():
+    with pytest.raises(storyboard.StoryboardError):
+        storyboard._parse_scenes("no json here", 1)
+    with pytest.raises(storyboard.StoryboardError):
+        storyboard._parse_scenes("[]", 1)
+    with pytest.raises(storyboard.StoryboardError):
+        storyboard._parse_scenes('[{"narration": "no shot"}]', 1)
+
+
+def test_parse_custom_scenes_with_optional_narration():
+    scenes = storyboard.parse_custom_scenes(
+        ["a lighthouse at dusk || The sea keeps its oldest secrets here.", "waves on black rocks", "  ", ""],
+        6,
+    )
+    assert len(scenes) == 2
+    assert scenes[0].narration.startswith("The sea keeps")
+    assert scenes[1].narration == ""
+
+
+# ------------------------------------------------------------------- subtitles
+def test_srt_timestamps_and_scene_slots():
+    sc = [storyboard.Scene(shot="a", narration="First line ever."), storyboard.Scene(shot="b", narration="Second line lands.")]
+    srt = storyboard.build_srt(sc, 6)
+    assert "00:00:00,000 --> 00:00:05,850" in srt   # scene-1 slot
+    assert "00:00:06,000 --> 00:00:11,850" in srt   # scene-2 slot (no overlap)
+    assert srt.count("First line") == 1 and srt.count("Second line") == 1
+
+
+def test_srt_skips_empty_narration():
+    sc = [storyboard.Scene(shot="a", narration=""), storyboard.Scene(shot="b", narration="Only one speaks.")]
+    srt = storyboard.build_srt(sc, 5)
+    assert srt.startswith("1\n00:00:05,000")  # renumbered, placed in scene-2 slot
+    assert "Only one speaks." in srt
+
+
+def test_srt_ts_format():
+    assert storyboard._srt_ts(0) == "00:00:00,000"
+    assert storyboard._srt_ts(65.5) == "00:01:05,500"
+
+
+# ------------------------------------------------------------------- stitching
+def test_stitch_cmd_silent_two_scenes():
+    cmd = storyboard.build_stitch_cmd("ffmpeg", ["s0.mp4", "s1.mp4"], None, "out.mp4",
+                                      scene_seconds=6, aspect="9:16", with_bed=False)
+    filt = cmd[cmd.index("-filter_complex") + 1]
+    assert "concat=n=2:v=1:a=0[v]" in filt
+    assert "scale=720:1280" in filt            # aspect dims picked up
+    assert "fps=24" in filt and "-crf" in cmd  # normalized + re-encoded avc
+    assert "-c:a" not in cmd                   # silent: no audio encoder
+
+
+def test_stitch_cmd_three_scenes_voice_cinema():
+    cmd = storyboard.build_stitch_cmd(
+        "ffmpeg", ["s0.mp4", "s1.mp4", "s2.mp4"], ["v0.mp3", "v1.mp3", "v2.mp3"], "out.mp4",
+        scene_seconds=6, aspect="16:9", with_bed=True)
+    filt = cmd[cmd.index("-filter_complex") + 1]
+    assert filt.count("loudnorm=I=-16") == 3                       # every scene voice polished
+    assert "concat=n=3:v=1:a=1" in filt                            # voices stitched back-to-back
+    assert "[a0][bed]amix=inputs=2" in filt                        # ambience under the story
+    assert "apad=whole_dur=6" in filt and "atrim=0:6" in filt      # each voice pinned to its slot
+    assert cmd[cmd.index("-t") + 1] == "18"                        # total = scenes × seconds
+    assert "-map" in cmd and "[aout]" in cmd
+
+
+def test_stitch_cmd_voice_only_no_bed():
+    cmd = storyboard.build_stitch_cmd("ffmpeg", ["s0.mp4"], ["v0.mp3"], "out.mp4",
+                                      scene_seconds=8, aspect="1:1", with_bed=False)
+    filt = cmd[cmd.index("-filter_complex") + 1]
+    assert "[bed]" not in filt and "amix=inputs=2" not in filt
+    assert "scale=720:720" in filt
+
+
+def test_subtitle_burn_cmd_escapes_and_styles():
+    cmd = storyboard.build_subtitle_burn_cmd("ffmpeg", "in.mp4", "/tmp/weird:dir/story.srt", "out.mp4", "16:9")
+    vf = cmd[cmd.index("-vf") + 1]
+    assert "subtitles=" in vf and "force_style=" in vf
+    assert "\\:" in vf                                   # windows/colon safety
+    assert cmd[cmd.index("-c:a") + 1] == "copy"          # audio untouched
+
+
+# ------------------------------------------------------------------- schema
+def test_storyboard_request_validation():
+    req = StoryboardRequest(prompt="a tiny epic about rain")
+    assert req.scenes == 3 and req.audio == "cinema" and req.subtitles is False
+    with pytest.raises(ValidationError):
+        StoryboardRequest(prompt="x" * 10, scenes=5)          # 4 scenes max
+    with pytest.raises(ValidationError):
+        StoryboardRequest(prompt="x" * 10, scenes=1)          # 2 scenes min
+    with pytest.raises(ValidationError):
+        StoryboardRequest(prompt="x" * 10, scene_seconds=9)   # 8s max per scene
+    ok = StoryboardRequest(prompt="x" * 10, custom_scenes=["shot a", "shot b || line"])
+    assert ok.custom_scenes[1].endswith("line")
+
+
+def test_tts_request_voice_optional():
+    assert TTSRequest(text="hello").voice is None
+    assert TTSRequest(text="hello", voice="onyx").voice == "onyx"
+    with pytest.raises(ValidationError):
+        TTSRequest(text="hello", voice="BROKEN VOICE")

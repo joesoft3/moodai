@@ -10,16 +10,21 @@ production uploads; then Play App Signing covers the app key).
 | Field | Text |
 |---|---|
 | **App name** | Mood AI |
-| **Short description** (80) | Multi-model AI super-app: chat, ⚔ Arena debates, think mode, voice. |
+| **Short description** (80) | AI super-app: chat, ⚔ Arena debates, 🎬 video with AI voice & sound. |
 | **Full description** | below |
 
 ```
-Mood AI is a Grok-class AI super-app that makes every major model compete for your attention —
-and always shows its work.
+Mood AI is a Grok-class AI super-app — and now it directs films. Every major model competes
+for your attention, and it always shows its work.
 
-⚔️ ARENA — send one question, watch Grok, GPT and Gemini draft answers in parallel, vote on
-each other's work blind, then get a judge verdict with accuracy & clarity score cards. Losers'
-drafts are re-challengeable with one tap.
+🎬 VIDEO STUDIO WITH CINEMA SOUND — type an idea, get a finished video: AI-written voiceover
+in 10 studio voices, a cinematic ambient mix, and loudness-polished audio. Storyboard mode
+splits your idea into 2–4 directed scenes, stitches them into one continuous film, and burns
+subtitles in on request.
+
+⚔️ ARENA — send one question, watch S1 Mood-4, GPT and Gemini draft answers in parallel, vote
+on each other's work blind, then get a judge verdict with accuracy & clarity score cards.
+Losers' drafts are re-challengeable with one tap.
 
 🧠 THINK MODE — open the purple panel and watch the model reason (live thinking traces +
 a 2-line digest) before the final answer.
@@ -29,6 +34,8 @@ synthesis with tappable source chips. Reports save to your Research library auto
 
 📧🗓️ PLUGINS WITH BRAKES — connect Gmail, Calendar and GitHub. Every write action stops in the
 ✋ inbox until YOU approve. Nothing sends without you.
+
+🔔 PUSH NOTIFICATIONS — arena verdicts and approval requests follow you to your pocket.
 
 🎤🖼️ MORE IN ONE APP — realtime voice chats, image generation, file & vision analysis with
 long-term memory, team workspaces, and custom-domain white-label arenas for communities.

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Clapperboard, Download, Image as ImageIcon, Loader2, Sparkles, Wand2, X } from "lucide-react";
 import AppShell from "@/components/AppShell";
-import { apiFetch } from "@/lib/api";
+import { API, apiFetch, token } from "@/lib/api";
 
 interface ImgItem {
   id: string;
@@ -18,6 +18,8 @@ interface ImgItem {
     audio?: string;      // "none" | "voice" | "voice+ambience"
     script?: string;     // the AI voiceover actually spoken
     requestedAudio?: string;
+    scenes?: number;     // >1 → storyboard film
+    subtitles?: boolean;
   };
 }
 
@@ -66,6 +68,15 @@ const SOUND_STAGE_FLOW = [
   [150, "📦 Finalizing (still normal — video is heavy)…"],
 ] as const;
 
+const STORY_STAGE_FLOW = [
+  [0, "🎬 Director model splitting your idea into scenes…"],
+  [15, "🎞 Rendering scene clips one by one…"],
+  [240, "🧵 Stitching the film (normalize → concat)…"],
+  [300, "🎙 Recording every scene's voiceover…"],
+  [330, "🎚 Mixing story, ambience & loudness polish…"],
+  [390, "📦 Finalizing your film (still normal)…"],
+] as const;
+
 const VOICES: { v: string; label: string }[] = [
   { v: "alloy", label: "🎙 Alloy · neutral" },
   { v: "nova", label: "✨ Nova · warm fem" },
@@ -79,19 +90,19 @@ const VOICES: { v: string; label: string }[] = [
   { v: "verse", label: "🎬 Verse · trailer" },
 ];
 
-function VideoPendingTile({ sound }: { sound?: boolean }) {
+function VideoPendingTile({ sound, story }: { sound?: boolean; story?: boolean }) {
   const [secs, setSecs] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setSecs((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, []);
-  const flow = sound ? SOUND_STAGE_FLOW : STAGE_FLOW;
+  const flow = story ? STORY_STAGE_FLOW : sound ? SOUND_STAGE_FLOW : STAGE_FLOW;
   const stage = [...flow].reverse().find(([t]) => secs >= t)?.[1] ?? flow[0][1];
   return (
     <div className="aspect-video rounded-xl border border-line bg-panel animate-pulse flex flex-col items-center justify-center gap-2 px-4">
       <Loader2 size={22} className="animate-spin text-accent" />
       <p className="text-[11px] text-gray-400 text-center">{stage}</p>
-      <p className="text-[10px] text-gray-600">{secs}s elapsed · typical 1–5 min</p>
+      <p className="text-[10px] text-gray-600">{Math.floor(secs / 60)}m {secs % 60}s elapsed · {story ? "storyboards 3–12 min" : "typical 1–5 min"}</p>
     </div>
   );
 }
@@ -135,6 +146,12 @@ export default function ImagesPage() {
   const [audioMode, setAudioMode] = useState<"none" | "narration" | "cinema">("cinema");
   const [voiceId, setVoiceId] = useState("alloy");
   const [narration, setNarration] = useState("");
+  // 🎬 storyboard options
+  const [storyScenes, setStoryScenes] = useState(1);          // 1 = single shot
+  const [storySeconds, setStorySeconds] = useState(6);        // per-scene seconds
+  const [subtitles, setSubtitles] = useState(false);
+  const [customScenes, setCustomScenes] = useState("");
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const [info, setInfo] = useState("");
   const [enhancing, setEnhancing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -197,25 +214,47 @@ export default function ImagesPage() {
     if (!p) return;
     setError("");
     setInfo("");
-    const meta: ImgItem["meta"] = { duration, aspect_ratio: aspect, quality, style, requestedAudio: audioMode };
+    const isStory = storyScenes > 1;
+    const sceneLines = customScenes.split("\n").map((l) => l.trim()).filter(Boolean);
+    const useCustom = isStory && sceneLines.length >= 2;
+    const meta: ImgItem["meta"] = {
+      duration: isStory ? storySeconds * (useCustom ? sceneLines.length : storyScenes) : duration,
+      aspect_ratio: aspect, quality, style, requestedAudio: audioMode,
+      scenes: isStory ? (useCustom ? sceneLines.length : storyScenes) : undefined,
+    };
     const tmpId = "pending-" + Date.now();
     setVideos((it) => [{ id: tmpId, url: "", prompt: p, pending: true, meta }, ...it]);
     const ac = new AbortController();
     abortRef.current = ac;
-    const to = setTimeout(() => ac.abort(), 6 * 60 * 1000);
+    // Storyboards render N clips sequentially — give them honest time.
+    const timeoutMs = isStory ? Math.min((meta.scenes ?? 2) * 6, 24) * 60 * 1000 : 6 * 60 * 1000;
+    const to = setTimeout(() => ac.abort(), timeoutMs);
     try {
-      const res = await apiFetch<{ url: string; audio?: string; script?: string | null; note?: string | null }>("/media/videos", {
-        method: "POST",
-        body: JSON.stringify({
-          prompt: p, duration, aspect_ratio: aspect, quality, style, negative_prompt: negative,
-          audio: audioMode, voice: voiceId, narration: narration.trim(),
-        }),
-        signal: ac.signal,
-      });
+      type VideoRes = { url: string; audio?: string; script?: string | null; note?: string | null; subtitles?: boolean };
+      const res = isStory
+        ? await apiFetch<VideoRes>("/media/videos/storyboard", {
+            method: "POST",
+            body: JSON.stringify({
+              prompt: p, scenes: storyScenes, scene_seconds: storySeconds,
+              aspect_ratio: aspect, quality, style, negative_prompt: negative,
+              audio: audioMode, voice: voiceId, subtitles,
+              custom_scenes: useCustom ? sceneLines : null,
+            }),
+            signal: ac.signal,
+          })
+        : await apiFetch<VideoRes>("/media/videos", {
+            method: "POST",
+            body: JSON.stringify({
+              prompt: p, duration, aspect_ratio: aspect, quality, style, negative_prompt: negative,
+              audio: audioMode, voice: voiceId, narration: narration.trim(),
+            }),
+            signal: ac.signal,
+          });
       setPrompt("");
       if (res.note) setInfo(`ℹ️ ${res.note}`);
-      if (res.audio && res.audio !== "none") setInfo(`🔊 ${res.audio === "voice+ambience" ? "Voice + ambience" : "Voice"} soundtrack mixed — loudness-polished. 🎧`);
-      const doneMeta: ImgItem["meta"] = { ...meta, audio: res.audio ?? "none", script: res.script ?? undefined };
+      if (res.audio && res.audio !== "none")
+        setInfo(`🔊 ${res.audio === "voice+ambience" ? "Voice + ambience" : "Voice"} soundtrack mixed — loudness-polished. 🎧${res.subtitles ? " 💬 Subtitles burned in." : ""}`);
+      const doneMeta: ImgItem["meta"] = { ...meta, audio: res.audio ?? "none", script: res.script ?? undefined, subtitles: res.subtitles };
       setVideos((it) => {
         const next = it.map((i) => (i.id === tmpId ? { id: tmpId.replace("pending", "vid"), url: res.url, prompt: p, meta: doneMeta } : i));
         persistVideos(next);
@@ -227,6 +266,29 @@ export default function ImagesPage() {
     } finally {
       clearTimeout(to);
       abortRef.current = null;
+    }
+  }
+
+  async function previewVoice() {
+    if (voiceBusy) return;
+    setVoiceBusy(true);
+    setError("");
+    try {
+      const pretty = VOICES.find((v) => v.v === voiceId)?.label.split("·")[0].replace(/[^\w ]/g, "").trim() || voiceId;
+      const res = await fetch(`${API}/voice/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token.get() ?? ""}` },
+        body: JSON.stringify({ text: `Hey — I'm ${pretty}, your narrator. Let's make this shot sing.`, voice: voiceId }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? `Voice preview failed (${res.status})`);
+      const url = URL.createObjectURL(await res.blob());
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
+    } catch (e: any) {
+      setError(e.message ?? "Voice preview failed");
+    } finally {
+      setVoiceBusy(false);
     }
   }
 
@@ -297,8 +359,16 @@ export default function ImagesPage() {
                   </button>
                 ))}
               </div>
-              <ChipRow label="Duration" value={duration} onChange={setDuration}
-                options={[5, 8, 10, 15].map((v) => ({ v, label: `${v}s` }))} />
+              <ChipRow label="🎬 Scenes" value={storyScenes} onChange={setStoryScenes}
+                options={[1, 2, 3, 4].map((v) => ({ v, label: v === 1 ? "Single shot" : `${v}-scene film` }))} />
+              {storyScenes > 1 && (
+                <ChipRow label="Per scene" value={storySeconds} onChange={setStorySeconds}
+                  options={[5, 6, 8].map((v) => ({ v, label: `${v}s each` }))} />
+              )}
+              {storyScenes === 1 && (
+                <ChipRow label="Duration" value={duration} onChange={setDuration}
+                  options={[5, 8, 10, 15].map((v) => ({ v, label: `${v}s` }))} />
+              )}
               <ChipRow label="Aspect" value={aspect} onChange={setAspect}
                 options={[{ v: "16:9", label: "▭ 16:9" }, { v: "9:16", label: "▯ 9:16" }, { v: "1:1", label: "◻ 1:1" }]} />
               <ChipRow label="Quality" value={quality} onChange={setQuality}
@@ -324,16 +394,31 @@ export default function ImagesPage() {
                         <option key={v.v} value={v.v}>{v.label}</option>
                       ))}
                     </select>
+                    <button
+                      onClick={previewVoice}
+                      disabled={voiceBusy}
+                      title="Hear this voice (10-sec sample)"
+                      className="rounded-lg border border-accent/40 bg-accent/10 text-accent px-2 py-1 text-[11px] hover:bg-accent/20 transition disabled:opacity-40 flex items-center gap-1"
+                    >
+                      {voiceBusy ? <Loader2 size={11} className="animate-spin" /> : "▶"} Preview
+                    </button>
                     <span className="text-[10px] text-gray-600 ml-auto">loudness-polished · EBU R128</span>
                   </div>
-                  <textarea
-                    value={narration}
-                    onChange={(e) => setNarration(e.target.value)}
-                    rows={2}
-                    maxLength={600}
-                    placeholder="Optional: write the exact voiceover… leave blank and the director model writes one sized to your clip."
-                    className="w-full rounded-lg bg-panel border border-line px-2.5 py-1.5 text-[11px] outline-none focus:border-accent/60 placeholder-gray-600 resize-none"
-                  />
+                  {storyScenes === 1 ? (
+                    <textarea
+                      value={narration}
+                      onChange={(e) => setNarration(e.target.value)}
+                      rows={2}
+                      maxLength={600}
+                      placeholder="Optional: write the exact voiceover… leave blank and the director model writes one sized to your clip."
+                      className="w-full rounded-lg bg-panel border border-line px-2.5 py-1.5 text-[11px] outline-none focus:border-accent/60 placeholder-gray-600 resize-none"
+                    />
+                  ) : (
+                    <p className="text-[10px] text-gray-600">
+                      🎬 Each scene gets its own voiceover line — written by the director model, or from your custom
+                      scenes' <code className="text-gray-500">|| narration</code> halves (Advanced).
+                    </p>
+                  )}
                   <p className="text-[10px] text-gray-600">
                     🎧 Pure sound & voice: AI narration recorded in your chosen voice, mixed{" "}
                     {audioMode === "cinema" ? "over a soft ambient bed (and any sound the clip already has) " : ""}
@@ -346,15 +431,37 @@ export default function ImagesPage() {
                 className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-300 transition"
               >
                 <ChevronDown size={12} className={`transition-transform ${showAdvanced ? "rotate-180" : ""}`} />
-                Advanced — negative prompt
+                Advanced — negative prompt{storyScenes > 1 ? ", subtitles, custom scenes" : ""}
               </button>
               {showAdvanced && (
-                <input
-                  value={negative}
-                  onChange={(e) => setNegative(e.target.value)}
-                  placeholder="What to avoid (e.g. people, text overlays, fast motion)…"
-                  className="w-full rounded-xl bg-base border border-line px-3 py-2 text-xs outline-none focus:border-accent/60 placeholder-gray-600"
-                />
+                <div className="space-y-2">
+                  <input
+                    value={negative}
+                    onChange={(e) => setNegative(e.target.value)}
+                    placeholder="What to avoid (e.g. people, text overlays, fast motion)…"
+                    className="w-full rounded-xl bg-base border border-line px-3 py-2 text-xs outline-none focus:border-accent/60 placeholder-gray-600"
+                  />
+                  {storyScenes > 1 && (
+                    <>
+                      <label className="flex items-center gap-2 text-[11px] text-gray-400 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={subtitles}
+                          onChange={(e) => setSubtitles(e.target.checked)}
+                          className="accent-[#7c9bff]"
+                        />
+                        💬 Burn narration in as subtitles
+                      </label>
+                      <textarea
+                        value={customScenes}
+                        onChange={(e) => setCustomScenes(e.target.value)}
+                        rows={3}
+                        placeholder={"Optional — direct the scenes yourself, one per line:\nshot description || optional narration line\n(written scenes override the AI split when 2+ lines given)"}
+                        className="w-full rounded-xl bg-base border border-line px-3 py-2 text-xs outline-none focus:border-accent/60 placeholder-gray-600 resize-none"
+                      />
+                    </>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -402,7 +509,7 @@ export default function ImagesPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {videos.map((v) =>
                   v.pending ? (
-                    <VideoPendingTile key={v.id} sound={(v.meta?.requestedAudio ?? "none") !== "none"} />
+                    <VideoPendingTile key={v.id} sound={(v.meta?.requestedAudio ?? "none") !== "none"} story={(v.meta?.scenes ?? 1) > 1} />
                   ) : (
                     <div key={v.id} className="rounded-xl overflow-hidden border border-line bg-panel">
                       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
@@ -423,6 +530,16 @@ export default function ImagesPage() {
                                   {chip}
                                 </span>
                               ))}
+                            {(v.meta.scenes ?? 1) > 1 && (
+                              <span className="text-[10px] rounded-full bg-white/5 border border-line px-2 py-0.5 text-gray-400">
+                                🎬 {v.meta.scenes}-scene film
+                              </span>
+                            )}
+                            {v.meta.subtitles && (
+                              <span className="text-[10px] rounded-full bg-white/5 border border-line px-2 py-0.5 text-gray-400">
+                                💬 subs
+                              </span>
+                            )}
                             {v.meta.audio && v.meta.audio !== "none" && (
                               <span className="text-[10px] rounded-full bg-accent/10 border border-accent/30 px-2 py-0.5 text-accent">
                                 {v.meta.audio === "voice+ambience" ? "🎼 voice + ambience" : "🎙 AI voiceover"}
