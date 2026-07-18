@@ -38,6 +38,12 @@ jobs:
       - name: Flutter version
         run: flutter --version
 
+      - name: Install Android platform 36 (runners ship 34; plugins require 36)
+        run: |
+          SDKMGR="$(command -v sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "$SDKMGR" --licenses > /dev/null || true
+          "$SDKMGR" --install "platforms;android-36" "build-tools;36.0.0"
+
       - name: Scaffold the android platform (not committed on purpose)
         working-directory: mobile
         run: |
