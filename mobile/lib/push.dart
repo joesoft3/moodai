@@ -73,7 +73,7 @@ class PushService {
       const initSettings = InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       );
-      await _local.initialize(initSettings);
+      await _local.initialize(settings: initSettings);
       await _local
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(_channel);
@@ -103,10 +103,10 @@ class PushService {
     if (body.isEmpty) return;
     try {
       await _local.show(
-        message.hashCode,
-        title,
-        body,
-        NotificationDetails(
+        id: message.hashCode,
+        title: title,
+        body: body,
+        notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             _channel.id,
             _channel.name,
