@@ -216,6 +216,30 @@ jobs:
           print("wrote", rules)
           PY
 
+      - name: Enable core library desugaring (flutter_local_notifications hard-requirement)
+        working-directory: mobile
+        run: |
+          python3 - << 'PY'
+          import pathlib
+          for name in ("android/app/build.gradle.kts", "android/app/build.gradle"):
+              p = pathlib.Path(name)
+              if not p.exists():
+                  continue
+              s = p.read_text()
+              if "coreLibraryDesugaring" in s:
+                  print("desugaring already enabled:", p)
+                  continue
+              kts = name.endswith(".kts")
+              enable_line = ("        isCoreLibraryDesugaringEnabled = true"
+                             if kts else "        coreLibraryDesugaringEnabled true")
+              if "compileOptions {" in s:
+                  s = s.replace("compileOptions {", "compileOptions {\n" + enable_line, 1)
+              s = s.rstrip() + ('\n\ndependencies {\n    coreLibraryDesugaring('
+                                '"com.android.tools:desugar_jdk_libs:2.1.5")\n}\n')
+              p.write_text(s)
+              print("desugaring enabled:", p)
+          PY
+
       - name: Pub get
         working-directory: mobile
         run: flutter pub get
