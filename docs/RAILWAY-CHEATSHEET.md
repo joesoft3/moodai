@@ -46,6 +46,15 @@ FRONTEND_URL = http://localhost:3000            ← same here
 3. Next.js on Netlify: env var `NEXT_PUBLIC_API_URL = https://<that-domain>/api/v1`
 4. Back on Railway: extend `CORS_ORIGINS` = `http://localhost:3000,https://<your-site>.netlify.app`
 
+## Optional add-on variables (any time later — Railway redeploys on change)
+
+| Why | Variables |
+|---|---|
+| 🧩 Plugin Store real connects (Gmail/Calendar) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BACKEND_PUBLIC_URL=https://<api-domain>` — guide: [PLUGIN-OAUTH](PLUGIN-OAUTH.md) |
+| 🧩 GitHub plugin | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
+| 🌍 Custom domain | `CORS_ORIGINS`, `FRONTEND_URL`, `BACKEND_PUBLIC_URL` → see [CUSTOM-DOMAIN-SETUP](CUSTOM-DOMAIN-SETUP.md) |
+| 💳 Stripe (later) | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` |
+
 ## Verify (from any machine)
 
 ```bash

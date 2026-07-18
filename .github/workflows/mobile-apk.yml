@@ -99,7 +99,23 @@ jobs:
               print("manifest patched")
           PY
 
-      - name: Enable R8 minification + resource shrinking (slim APKs)
+      - name: Prepare release signing (optional — from repo secrets)
+        working-directory: mobile
+        env:
+          KS_B64: ${{ secrets.MOOD_UPLOAD_KEYSTORE }}
+          KS_PASS: ${{ secrets.MOOD_UPLOAD_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MOOD_UPLOAD_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.MOOD_UPLOAD_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > android/app/mood-upload.jks
+            printf 'storeFile=mood-upload.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$KS_PASS" "$KEY_ALIAS" "$KEY_PASS" > android/key.properties
+            echo "release signing: ENABLED ($(stat -c%s android/app/mood-upload.jks)-byte keystore)"
+          else
+            echo "release signing: skipped (no MOOD_UPLOAD_KEYSTORE secret) — debug signature used"
+          fi
+
+      - name: Enable R8 minification + resource shrinking + conditional release signing
         working-directory: mobile
         run: |
           python3 - << 'PY'
@@ -113,11 +129,26 @@ jobs:
               anchor_kts = 'signingConfig = signingConfigs.getByName("debug")'
               anchor_groovy = 'signingConfig signingConfigs.debug'
               if anchor_kts in s:
-                  addition = ("            isMinifyEnabled = true\n"          # AGP-9 DSL names
-                              "            isShrinkResources = true\n"
-                              '            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")')
-                  s = s.replace(anchor_kts, anchor_kts + "\n" + addition, 1)
-                  print("R8 patch applied (kts):", p)
+                  addition = "\n".join([
+                      "            val keyPropsFile = rootProject.file(\"key.properties\")",
+                      "            if (keyPropsFile.exists()) {",
+                      "                val kp = java.util.Properties()",
+                      "                kp.load(java.io.FileInputStream(keyPropsFile))",
+                      "                signingConfig = signingConfigs.create(\"release\").apply {",
+                      '                    storeFile = file(kp["storeFile"] as String)',
+                      '                    storePassword = kp["storePassword"] as String',
+                      '                    keyAlias = kp["keyAlias"] as String',
+                      '                    keyPassword = kp["keyPassword"] as String',
+                      "                }",
+                      "            } else {",
+                      "                signingConfig = signingConfigs.getByName(\"debug\")",
+                      "            }",
+                      "            isMinifyEnabled = true",
+                      "            isShrinkResources = true",
+                      '            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")',
+                  ])
+                  s = s.replace(anchor_kts, addition, 1)
+                  print("signing+R8 patch applied (kts):", p)
                   patched = True
               elif anchor_groovy in s:
                   addition = ("            minifyEnabled true\n"
@@ -147,6 +178,10 @@ jobs:
         working-directory: mobile
         run: flutter pub get
 
+      - name: Generate launcher icons (brand ✦ replaces the Flutter default)
+        working-directory: mobile
+        run: dart run flutter_launcher_icons
+
       - name: Static analysis (non-blocking)
         working-directory: mobile
         run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
@@ -161,16 +196,21 @@ jobs:
           # universal APK (all devices) + per-ABI APKs (much smaller downloads)
           flutter build apk --release --obfuscate --split-debug-info=build/app/symbols-universal $ARGS
           flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/app/symbols-abi $ARGS
+          flutter build appbundle --release --obfuscate --split-debug-info=build/app/symbols-aab $ARGS
           echo "── APK sizes ──"
           du -h build/app/outputs/flutter-apk/*.apk
+          echo "── AAB (Play Console) ──"
+          du -h build/app/outputs/bundle/release/app-release.aab
           echo "── obfuscation symbols ──"
-          du -sh build/app/symbols-universal build/app/symbols-abi
+          du -sh build/app/symbols-universal build/app/symbols-abi build/app/symbols-aab
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
           name: mood-ai-android-apks
-          path: mobile/build/app/outputs/flutter-apk/*.apk
+          path: |
+            mobile/build/app/outputs/flutter-apk/*.apk
+            mobile/build/app/outputs/bundle/release/*.aab
           retention-days: 30
           if-no-files-found: error
 
@@ -181,6 +221,7 @@ jobs:
           path: |
             mobile/build/app/symbols-universal/
             mobile/build/app/symbols-abi/
+            mobile/build/app/symbols-aab/
           retention-days: 90
 
       - name: Attach APKs to the GitHub Release (tags only)
@@ -197,10 +238,18 @@ jobs:
             | app-armeabi-v7a-release.apk | Very old phones (pre-2015) |
             | app-release.apk | Universal — works everywhere, bigger file |
             On the phone: enable “Install unknown apps” for your browser → tap the downloaded APK → done.
+            🏪 **Play Console:** upload `app-release.aab` (signed with your upload key once the
+            `MOOD_UPLOAD_*` secrets are set — see workflow footer comments).
           files: |
             mobile/build/app/outputs/flutter-apk/*.apk
+            mobile/build/app/outputs/bundle/release/app-release.aab
 
-# Release-signing for Play distribution (later):
-#   keytool -genkey -v -keystore mood-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias mood
-#   base64 -w0 mood-upload.jks → secrets MOOD_UPLOAD_KEYSTORE (+ _PASSWORD, _KEY_ALIAS, _KEY_PASSWORD)
-# then key.properties + signingConfigs in android/app/build.gradle.kts.
+# Release-signing for Play distribution (wired above — optional):
+#   1) keytool -genkey -v -keystore mood-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias mood
+#   2) repo → Settings → Secrets and variables → Actions:
+#        MOOD_UPLOAD_KEYSTORE        = base64 -w0 mood-upload.jks
+#        MOOD_UPLOAD_STORE_PASSWORD  = <keystore password>
+#        MOOD_UPLOAD_KEY_ALIAS       = mood
+#        MOOD_UPLOAD_KEY_PASSWORD    = <key password>
+#   With those set, every build auto-signs APK + AAB with your upload key;
+#   without them the debug key is used (fine for sideloaded dev APKs).

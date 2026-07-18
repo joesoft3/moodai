@@ -1,0 +1,10 @@
+# Generate launcher icons from the brand mark:
+#   dart run flutter_launcher_icons        (CI does this on every mobile build)
+# Source art: assets/icon/app_icon.png (1024×1024 ✦ on midnight #0B0F14)
+flutter_launcher_icons:
+  android: true              # overwrites mipmap-*/ic_launcher.png from the scaffold
+  ios: false                 # no iOS scaffold in this repo yet
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#0B0F14"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"

@@ -161,6 +161,31 @@ if [ "${SMOKE_STRIPE:-0}" = "1" ] && [ -n "$TOKEN" ]; then
   fi
 fi
 
+# ── 7. frontend + CORS (when WEB_URL is given) ─────────────────────────────
+#    WEB_URL=https://mood-ai-app.netlify.app scripts/live-smoke.sh https://YOUR-API
+if [ -n "${WEB_URL:-}" ]; then
+  WEB="${WEB_URL%/}"
+  opts=$(curl -s -o "$BODY" -D - -w 'HTTPCODE:%{http_code}' --max-time 12 -X OPTIONS "$API/auth/login" \
+    -H "Origin: $WEB" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type,authorization")
+  hcode=$(printf '%s' "$opts" | grep -o 'HTTPCODE:[0-9]*' | cut -d: -f2)
+  acao=$(printf '%s' "$opts" | tr -d '\r' | grep -i '^access-control-allow-origin:' | head -1 | awk '{print $2}' || true)
+  if [ -n "$acao" ] && { [ "$acao" = "$WEB" ] || [ "$acao" = "*" ]; }; then
+    pass "CORS preflight for $WEB (HTTP $hcode, allow-origin: $acao)"
+  else
+    fail "CORS preflight" "HTTP $hcode, allow-origin '${acao:-none}' — set CORS_ORIGINS=$WEB on the backend"
+  fi
+  wcode=$(curl -sL -o "$BODY" -w '%{http_code}' --max-time 15 "$WEB/")
+  if [ "$wcode" = "200" ]; then
+    if grep -qi "Mood" "$BODY"; then
+      pass "Web app serves $WEB (200, Mood AI markup present)"
+    else
+      pass "Web app serves $WEB (200)"
+    fi
+  else
+    fail "Web app serves $WEB" "HTTP $wcode"
+  fi
+fi
+
 echo "────────────────────────────────────────────"
 if [ "$FAILED" = "0" ]; then
   printf '\033[32mLIVE SMOKE OK\033[0m — every enabled path passed on %s\n' "$BASE"

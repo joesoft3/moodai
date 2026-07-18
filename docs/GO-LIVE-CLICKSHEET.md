@@ -120,9 +120,18 @@ v0.1.8's monolithic 54 MB one.
 3. ⚔️ Tap **Arena** → send “Should remote-first teams win?” → watch 3 drafts → ballots → verdict.
 4. 🧠 Enable **Think** on a mini model → reasoning trace collapsible above the reply.
 5. 🛡 Log in as **admin@mood.local** (bootstrap password) → **Owner** tab → analytics tiles.
-6. 🧩 Open **Plugins** → store cards render; tries to connect error politely until OAuth keys exist (expected — they're optional).
+6. 🧩 Open **Plugins** → store cards render; try to connect — errors politely until OAuth keys exist (fix: [PLUGIN-OAUTH](PLUGIN-OAUTH.md), ~10 min).
 
-**Done — Mood AI is publicly live.** 🎉 Send me any failing URL and I'll diagnose from the logs.
+**One command to verify EVERYTHING** (creates a real user, chats, arena, think, quotas, CORS, web):
+
+```bash
+WEB_URL=https://mood-ai-app.netlify.app scripts/live-smoke.sh https://YOUR-RAILWAY-URL
+```
+
+Every line green = done. 🎉 Send me any failing line/URL and I'll diagnose from the logs.
+
+**Then, whenever you want:** 🔑 [real Gmail/Calendar/GitHub connecting](PLUGIN-OAUTH.md) ·
+🌍 [your own domain](CUSTOM-DOMAIN-SETUP.md) · 🏪 Play Store (AAB + signing are already built into every `v*` release — set the `MOOD_UPLOAD_*` secrets when ready).
 
 ---
 
