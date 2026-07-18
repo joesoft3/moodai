@@ -32,6 +32,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Skip cleanly until Netlify is connected (secret set after the one-time UI import —
+    # see docs/GO-LIVE-CLICKSHEET.md Part B). No red board while undeployed.
+    if: ${{ vars.NETLIFY_CONNECTED == 'true' }}
     steps:
       - uses: actions/checkout@v4
 
