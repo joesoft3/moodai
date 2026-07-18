@@ -61,101 +61,6 @@ export interface ChatMsg {
   think?: ThinkState; // 🧠 extended reasoning trace
 }
 
-const TOOL_LABEL: Record<string, string> = {
-  gmail_send_message: "📧 Send email",
-  calendar_create_event: "📅 Create calendar event",
-  github_create_issue: "🐙 Create GitHub issue",
-};
-
-function resultNote(result: any): string {
-  if (!result) return "Done ✓";
-  if (result.error) return "⚠️ " + String(result.error).slice(0, 140);
-  if (result.url) return result.url;
-  if (result.link) return result.link;
-  if (result.sent) return `Sent ✓ to ${result.to}`;
-  if (result.created) return "Created ✓";
-  return "Done ✓";
-}
-
-/** Human-in-the-loop approval cards for staged write actions. */
-function ActionCards({ initial }: { initial: ConfirmAction[] }) {
-  const [actions, setActions] = useState<ConfirmAction[]>(initial);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  async function decide(id: string, approve: boolean) {
-    setBusyId(id);
-    try {
-      const res = await apiFetch<{ status: string; result?: any }>(
-        `/plugins/actions/${id}/${approve ? "approve" : "reject"}`,
-        { method: "POST" }
-      );
-      setActions((a) =>
-        a.map((x) =>
-          x.id === id
-            ? { ...x, status: res.status as ConfirmAction["status"], note: approve ? resultNote(res.result) : undefined }
-            : x
-        )
-      );
-    } catch (e: any) {
-      setActions((a) => a.map((x) => (x.id === id ? { ...x, note: "⚠️ " + (e.message ?? "Failed") } : x)));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  return (
-    <div className="mb-3 space-y-2">
-      {actions.map((a) => (
-        <div key={a.id} className="rounded-xl border border-accent/30 bg-accent/5 p-3 space-y-2">
-          <p className="text-xs font-semibold text-gray-200">
-            {a.status === "pending" ? "✋ Approve this action?" : TOOL_LABEL[a.name] ?? a.name}
-          </p>
-          <dl className="text-[12px] text-gray-400 space-y-0.5">
-            {Object.entries(a.args).slice(0, 5).map(([k, v]) => (
-              <div key={k} className="flex gap-2 min-w-0">
-                <dt className="text-gray-500 shrink-0 w-20 truncate">{k}</dt>
-                <dd className="text-gray-300 whitespace-pre-wrap [overflow-wrap:anywhere]">{String(v)}</dd>
-              </div>
-            ))}
-          </dl>
-          {a.status === "pending" ? (
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => decide(a.id, true)}
-                disabled={busyId === a.id}
-                className="text-xs rounded-lg bg-accent text-black font-semibold px-3 py-1.5 hover:brightness-110 transition disabled:opacity-40"
-              >
-                {busyId === a.id ? "Working…" : "✅ Approve"}
-              </button>
-              <button
-                onClick={() => decide(a.id, false)}
-                disabled={busyId === a.id}
-                className="text-xs rounded-lg bg-white/5 border border-line px-3 py-1.5 text-gray-300 hover:bg-white/10 transition disabled:opacity-40"
-              >
-                ✖ Reject
-              </button>
-            </div>
-          ) : (
-            <p className={`text-xs ${a.status === "approved" ? "text-green-400" : a.status === "rejected" ? "text-gray-500" : "text-red-400"}`}>
-              {a.status === "approved" ? (
-                a.note?.startsWith("http") ? (
-                  <>✅ Approved — <a href={a.note} target="_blank" rel="noreferrer" className="underline">view</a></>
-                ) : (
-                  <>✅ {a.note ?? "Approved"}</>
-                )
-              ) : a.status === "rejected" ? (
-                "Rejected"
-              ) : (
-                a.note ?? "Failed"
-              )}
-            </p>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 const AGENT_ICON: Record<string, string> = { researcher: "🔍", coder: "⌨️", writer: "✍️", critic: "🧐" };
 
 function ToolPills({ tools }: { tools: { name: string; ok: boolean }[] }) {
@@ -309,7 +214,6 @@ export default function MessageBubble({
       {msg.think && <ThinkingPanel state={msg.think} replayEvents={msg.think.events} />}
       {msg.arena && <ArenaPanel state={msg.arena} replayEvents={msg.arena.events} />}
       {msg.tools && msg.tools.length > 0 && <ToolPills tools={msg.tools} />}
-      {msg.actions && msg.actions.length > 0 && <ActionCards initial={msg.actions} />}
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: CodePre as any }}>
         {msg.content || "…"}
       </ReactMarkdown>

@@ -15,7 +15,6 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [appPassword, setAppPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -32,7 +31,6 @@ export default function LoginPage() {
                 email,
                 password,
                 display_name: name || undefined,
-                app_password: appPassword.trim() || undefined,
               }
             : { email, password }
         ),
@@ -57,22 +55,12 @@ export default function LoginPage() {
           </h1>
           {brand && <p className="text-[10px] text-gray-500">powered by Mood AI</p>}
           <p className="text-sm text-gray-500">
-            {mode === "login" ? "Welcome back" : "Create your account — sign-up may be invite-only or require an access code"}
+            {mode === "login" ? "Welcome back" : "Create your account"}
           </p>
         </div>
         <form onSubmit={submit} className="space-y-3">
           {mode === "register" && (
-            <>
-              <input className={inputCls} placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} />
-              <input
-                className={inputCls}
-                type="text"
-                autoComplete="off"
-                placeholder="App access code (if this server requires one)"
-                value={appPassword}
-                onChange={(e) => setAppPassword(e.target.value)}
-              />
-            </>
+            <input className={inputCls} placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} />
           )}
           <input
             className={inputCls}

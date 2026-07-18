@@ -15,7 +15,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _register = false;
-  final _appCode = TextEditingController();
   bool _busy = false;
   String? _error;
 
@@ -35,7 +34,6 @@ class _LoginScreenState extends State<LoginScreen> {
         await Api.post('/auth/register', {
           'email': email,
           'password': password,
-          if (_appCode.text.trim().isNotEmpty) 'app_password': _appCode.text.trim(),
         });
       }
       final res = await Api.post('/auth/login', {'email': email, 'password': password});
@@ -84,16 +82,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     onSubmitted: (_) => _submit(),
                     decoration: const InputDecoration(labelText: 'Password'),
                   ),
-                  if (_register) ...[
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _appCode,
-                      decoration: const InputDecoration(
-                        labelText: 'App access code (if required)',
-                        prefixIcon: Icon(Icons.key_outlined, size: 18),
-                      ),
-                    ),
-                  ],
                   if (_error != null) ...[
                     const SizedBox(height: 12),
                     Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),

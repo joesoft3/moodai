@@ -298,11 +298,7 @@ export default function ChatPage() {
           if (ev.type === "round_done" && ev.sources != null) pushLog("📚", `${ev.sources} unique sources collected`);
           if (ev.type === "writing") pushLog("✍️", "Writing the report…");
           if (ev.type === "tools" && ev.calls) patchLast((m) => ({ ...m, tools: ev.calls }));
-          if (ev.type === "confirm" && ev.actions)
-            patchLast((m) => ({
-              ...m,
-              actions: (ev.actions ?? []).map((a) => ({ ...a, status: "pending" as const })),
-            }));
+          // staged write actions no longer pop up in-chat — they wait in the Plugin Store inbox (/plugins)
           // ⚔️ arena: drafts, votes, winner
           if (ev.type === "topic" || ev.type.startsWith("draft_") || ev.type.startsWith("vote_"))
             patchLast((m) => ({
