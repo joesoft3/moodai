@@ -54,6 +54,9 @@ interface Engagement {
   sound: { videos_30d: number; with_sound_30d: number; attach_rate: number | null };
   top_films?: { id: string; title: string; views: number; scenes: number; created_at: string | null }[];
   music_mix?: Record<string, number>;
+  studio_mix?: Record<string, number>;
+  studio_cost_usd?: number;
+  design_kinds?: Record<string, number>;
   device_activity: {
     email: string;
     platform: string;
@@ -512,6 +515,40 @@ export default function AdminPage() {
                     )}
                   </div>
                 </div>
+
+                {/* 🎨 Creative studio */}
+                {engagement.studio_mix && Object.keys(engagement.studio_mix).length > 0 && (
+                  <div className="mt-4 rounded-xl bg-base border border-line p-3">
+                    <p className="text-[11px] text-gray-500 mb-2">
+                      🎨 Creative studio (30d) · est. spend <span className="text-accent">${(engagement.studio_cost_usd ?? 0).toFixed(2)}</span>
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {([
+                        ["video", "🎬 videos"], ["i2v", "📷 i2v"], ["design", "🎨 designs"],
+                        ["edit", "✂️ edits"], ["design_export", "🖨 exports"], ["film", "🎞 films"],
+                      ] as const).map(([k, label]) => (
+                        <span key={k} className="rounded-full border border-line px-2.5 py-1 text-[10px] text-gray-300">
+                          {label} <b className="text-accent ml-0.5">{engagement.studio_mix?.[k] ?? 0}</b>
+                        </span>
+                      ))}
+                    </div>
+                    {engagement.design_kinds && Object.keys(engagement.design_kinds).length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        <p className="text-[10px] text-gray-600">Design kinds</p>
+                        {Object.entries(engagement.design_kinds).map(([k, n]) => (
+                          <div key={k} className="flex items-center gap-2 text-[11px]">
+                            <span className="w-12 text-gray-400 capitalize">{k}</span>
+                            <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                              <div className="h-full rounded-full bg-accent/70"
+                                style={{ width: `${Math.max(6, (n / Math.max(1, ...Object.values(engagement.design_kinds ?? {}))) * 100)}%` }} />
+                            </div>
+                            <span className="text-gray-500 shrink-0">{n}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Device activity */}
                 {engagement.device_activity.length > 0 && (

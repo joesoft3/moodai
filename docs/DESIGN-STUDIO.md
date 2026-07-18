@@ -69,3 +69,16 @@ renderer run — the design lands in your Studio gallery with a how-to card.
 Storyboard films accept `use_brand: true`: identity colors/style are woven into
 scene planning and your logo is stamped onto the hero-frame poster; the public
 share card says "by *Your Brand* · Directed with Mood AI".
+
+## 🛍 Client mode (v1.1.0)
+`POST /media/design-orders` → magic link `/order/{token}`. Clients pick
+kind+style, describe their design, submit — the order lands as a **✋ staged
+`design_create`** action on your account. Approve in the Plugin Store inbox and
+the order flips to **delivered**: the client downloads Web + Print-HD PNGs from
+the very same link (`GET /media/public/orders/{token}/download`). Close links
+with `POST /media/design-orders/{id}/close`.
+
+## 📊 Studio analytics (v1.1.0)
+Admin → Engagement gains a **🎨 Creative studio** widget: 30-day mix
+(videos / i2v / designs / edits / exports / films), design-kind bars and a rough
+est. spend (usage_events metering: `i2v`, `edit`, `design_export` kinds).

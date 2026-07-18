@@ -6,16 +6,17 @@ unlinks both PNG tiers). Downloads are owner-gated; there is no public
 serving of design files (logos/brand assets shouldn't leak by URL guessing)."""
 
 import re
+import secrets
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
-from ...db.models import BrandKit, Design, User
+from ...db.models import BrandKit, Design, DesignOrder, PendingAction, User
 from ...db.session import get_db
 from ...schemas import BrandKitRequest, DesignRequest
 from ...services import designer as dzn
@@ -204,6 +205,7 @@ async def export_design(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Design not found")
     dst = Path(settings.MEDIA_DIR) / dzn.export_filename(design_id, preset)
     if not dst.exists():
+        await record_usage(user.id, "design_export", "ffmpeg")
         src = Path(settings.MEDIA_DIR) / (d.print_file or d.file)
         ok = await dzn.render_export(src, dst, preset)
         if not ok:
@@ -243,6 +245,122 @@ async def export_presets(user: User = Depends(get_current_user)):
     return {"presets": [{"id": k, "label": p.label,
                          "trim": [p.trim_w, p.trim_h], "bleed_px": p.bleed_px}
                         for k, p in dzn.EXPORT_PRESETS.items()]}
+
+
+def _order_public(o: DesignOrder, brand_name: str) -> dict:
+    return {
+        "token": o.token,
+        "status": o.status,
+        "brand_name": brand_name,
+        "customer_name": o.customer_name or None,
+        "kind": o.kind,
+        "style": o.style,
+        "idea": o.idea or None,
+        "note": o.note or None,
+        "ready": o.status == "delivered" and bool(o.design_id),
+    }
+
+
+@router.post("/design-orders", status_code=status.HTTP_201_CREATED)
+async def create_order_link(
+    request: Request,
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """🛍 Create a magic order link for clients — submissions arrive as ✋ approvals."""
+    body = {}
+    try:
+        body = await request.json() or {}
+    except Exception:
+        pass
+    note = str(body.get("note") or "")[:200]
+    row = DesignOrder(owner_id=user.id, token=secrets.token_hex(12), note=note)
+    db.add(row)
+    await db.commit()
+    return {"token": row.token, "path": f"/order/{row.token}", "status": row.status}
+
+
+@router.get("/design-orders")
+async def list_order_links(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = (await db.execute(
+        select(DesignOrder).where(DesignOrder.owner_id == user.id)
+        .order_by(DesignOrder.created_at.desc()).limit(20)
+    )).scalars().all()
+    return {"orders": [
+        {"id": o.id, "token": o.token, "path": f"/order/{o.token}", "status": o.status,
+         "customer_name": o.customer_name or None, "kind": o.kind,
+         "idea": (o.idea or "")[:80], "note": o.note or None,
+         "created_at": o.created_at.isoformat() if o.created_at else None}
+        for o in rows
+    ]}
+
+
+@router.post("/design-orders/{order_id}/close")
+async def close_order_link(order_id: str, db: AsyncSession = Depends(get_db),
+                           user: User = Depends(get_current_user)):
+    o = await db.get(DesignOrder, order_id)
+    if not o or o.owner_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order link not found")
+    o.status = "closed"
+    await db.commit()
+    return {"status": "closed"}
+
+
+@router.get("/public/orders/{token}")
+async def public_order_info(token: str, db: AsyncSession = Depends(get_db)):
+    o = await db.scalar(select(DesignOrder).where(DesignOrder.token == token))
+    if not o or o.status == "closed":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This order link is closed")
+    owner = await db.get(User, o.owner_id)
+    bk = await db.get(BrandKit, o.owner_id) if owner else None
+    return _order_public(o, (bk.brand_name if bk else "") or (owner.email.split("@")[0] if owner else ""))
+
+
+@router.post("/public/orders/{token}", status_code=status.HTTP_201_CREATED)
+async def public_order_submit(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+    o = await db.scalar(select(DesignOrder).where(DesignOrder.token == token))
+    if not o or o.status == "closed":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This order link is closed")
+    ip = request.client.host if request.client else "anon"
+    await enforce_rate_limit(f"puborder:{ip}", 3)
+    body = await request.json()
+    name = str(body.get("customer_name") or "")[:80].strip()
+    idea = str(body.get("idea") or "")[:1500].strip()
+    kind = str(body.get("kind") or "flyer")
+    style = str(body.get("style") or "minimal")
+    if len(idea) < 5:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Describe the design you need")
+    if kind not in dzn.KIND_PRESETS:
+        kind = "flyer"
+    if style not in dzn.STYLE_PRESETS:
+        style = "minimal"
+    o.customer_name, o.idea, o.kind, o.style = name, idea, kind, style
+    o.status = "staged"
+    db.add(PendingAction(
+        user_id=o.owner_id, conversation_id=None, tool="design_create",
+        args={"idea": f"[Client order — {name or 'guest'}] {idea}", "kind": kind,
+              "style": style, "order_token": o.token},
+    ))
+    await db.commit()
+    return {"status": "staged", "how_to": "Order received! The designer reviews & renders it — refresh this link for your files."}
+
+
+@router.get("/public/orders/{token}/download")
+async def public_order_download(
+    token: str, tier: str = Query(default="web", pattern="^(web|print)$"),
+    db: AsyncSession = Depends(get_db),
+):
+    o = await db.scalar(select(DesignOrder).where(DesignOrder.token == token))
+    if not o or o.status != "delivered" or not o.design_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not ready yet — check back soon")
+    d = await db.get(Design, o.design_id)
+    if not d:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Design missing")
+    name = d.print_file if tier == "print" else d.file
+    path = Path(settings.MEDIA_DIR) / name
+    if not name or not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File expired")
+    suffix = "print-hd" if tier == "print" else "web"
+    return FileResponse(path, media_type="image/png", filename=f"mood-{d.kind}-{suffix}.png")
 
 
 @router.get("/designs/{design_id}/download")

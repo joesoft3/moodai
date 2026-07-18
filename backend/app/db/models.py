@@ -329,3 +329,44 @@ class BrandKit(Base):
     font_vibe: Mapped[str] = mapped_column(String(16), default="modern")  # classic|modern|bold
     logo_design_id: Mapped[str] = mapped_column(String(36), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Edit(Base):
+    """✂️ Auto video edits — upload + instruction → staged ffmpeg pipeline.
+
+    src_name is the uploaded clip in MEDIA_DIR (kept until the row is deleted);
+    out_name is <uuid>_e.mp4 (public hex URL, swept by the 24h janitor)."""
+
+    __tablename__ = "edits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    instruction: Mapped[str] = mapped_column(Text, default="")
+    plan_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(16), default="rendering", index=True)  # rendering|done|failed
+    src_name: Mapped[str] = mapped_column(String(48), default="")
+    out_name: Mapped[str] = mapped_column(String(44), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DesignOrder(Base):
+    """🛍 Client mode — a magic link customers use to order a design.
+
+    /order/<token> is public (unguessable token); each submission stages a ✋
+    design_create action on the OWNER's account. Approving renders the design
+    and flips the order to delivered; the customer picks it up via the same link."""
+
+    __tablename__ = "design_orders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(12), default="open")      # open|staged|delivered|closed
+    customer_name: Mapped[str] = mapped_column(String(80), default="")
+    idea: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(String(12), default="flyer")
+    style: Mapped[str] = mapped_column(String(24), default="minimal")
+    design_id: Mapped[str] = mapped_column(String(36), default="")
+    note: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -175,3 +175,17 @@ One-tap post kits: pick X / Threads / YouTube Shorts → the model drafts a ≤2
 duration/aspect/quality/style → reference-frame animation. The full payload sends
 `image: {"url": "data:…"}`; if the provider rejects it, we retry text-only and say
 so in the response (`image_used: false`) — same daily `video` budget as text-to-video.
+
+## ✂️ Auto video editor (v1.1.0)
+`POST /media/edits` (multipart, ≤150MB MP4/MOV/WebM/AVI + `instruction`) → 202 →
+poll `GET /media/edits/{id}`. The fast model plans a normalized edit
+(trim → speed → reframe → Whisper subtitles → grade → mute/music bed → ⭐ brand
+logo stamp with `use_brand=true`) executed as pure ffmpeg stages; heuristic
+keyword fallback when the LLM is away. Output `*_e.mp4` joins the ephemeral
+media pool (hex URL, 24h janitor). Budget: `edit_day` (free 3 · pro 30).
+
+## 📷➡️🎬 Films from a reference photo (v1.1.0)
+`POST /media/videos/storyboard-i2v` (multipart image + the usual film fields) —
+scene 1 animates your uploaded frame; the director plans the remaining scenes
+around it. Brand threads through (`use_brand=true`), posters still get the logo
+stamp. Scenes draw from the shared `video_day` budget (same wallet as i2v).

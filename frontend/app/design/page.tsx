@@ -68,6 +68,7 @@ const FONT_VIBES = ["classic", "modern", "bold"];
 export default function DesignPage() {
   const [presets, setPresets] = useState<Presets | null>(null);
   const [exports, setExports] = useState<{ id: string; label: string }[]>([]);
+  const [orders, setOrders] = useState<{ id: string; token: string; path: string; status: string; customer_name: string | null; kind: string; idea: string | null }[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [designs, setDesigns] = useState<Design[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
@@ -107,6 +108,7 @@ export default function DesignPage() {
     apiFetch<Presets>("/media/designs/presets").then(setPresets).catch(() => flash("Could not load presets"));
     apiFetch<{ templates: Template[] }>("/media/designs/templates").then((j) => setTemplates(j.templates)).catch(() => {});
     apiFetch<{ presets: { id: string; label: string }[] }>("/media/designs/exports").then((j) => setExports(j.presets)).catch(() => {});
+    apiFetch<{ orders: typeof orders }>("/media/design-orders").then((j) => setOrders(j.orders)).catch(() => {});
     apiFetch<Brand>("/media/brand").then((b) => {
       setBrand(b);
       if (b.brand_name) setBrandOpen(false);
@@ -185,6 +187,36 @@ export default function DesignPage() {
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     } catch (e) {
       flash(e instanceof Error ? e.message : "Export failed");
+    }
+  }
+
+  async function createOrderLink() {
+    try {
+      const j = await apiFetch<{ token: string; path: string }>("/media/design-orders", {
+        method: "POST", body: JSON.stringify({}),
+      });
+      const url = `${window.location.origin}${j.path}`;
+      await navigator.clipboard.writeText(url);
+      flash(`🔗 Client order link copied — ${url}`);
+      const list = await apiFetch<{ orders: typeof orders }>("/media/design-orders");
+      setOrders(list.orders);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Link failed");
+    }
+  }
+
+  async function copyOrder(path: string) {
+    const url = `${window.location.origin}${path}`;
+    await navigator.clipboard.writeText(url);
+    flash("🔗 Order link copied to clipboard");
+  }
+
+  async function closeOrder(id: string) {
+    try {
+      await apiFetch(`/media/design-orders/${id}/close`, { method: "POST" });
+      setOrders((os) => os.map((o) => (o.id === id ? { ...o, status: "closed" } : o)));
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Close failed");
     }
   }
 
@@ -427,6 +459,41 @@ export default function DesignPage() {
           </p>
         )}
         {toast && <div className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs text-accent">{toast}</div>}
+
+        {/* 🛍 client mode */}
+        <section className="rounded-xl border border-line bg-white/5 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-gray-100">🛍 Client mode</h2>
+            <span className="text-[11px] text-gray-500">share a magic link — clients order, you approve in the ✋ inbox, they download from the same link</span>
+          </div>
+          <button onClick={createOrderLink}
+            className="touch-manipulation rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-[#0b0f14] hover:brightness-110 transition">
+            🔗 New order link (copies to clipboard)
+          </button>
+          {orders.length > 0 && (
+            <div className="space-y-1.5 pt-1">
+              {orders.slice(0, 6).map((o) => (
+                <div key={o.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2">
+                  <span className={`text-[10px] rounded-full px-2 py-0.5 border ${
+                    o.status === "delivered" ? "border-emerald-400/50 text-emerald-400"
+                    : o.status === "staged" ? "border-amber-400/50 text-amber-300"
+                    : o.status === "closed" ? "border-line text-gray-600" : "border-accent/40 text-accent"}`}>
+                    {o.status === "staged" ? "✋ waiting your approval" : o.status}
+                  </span>
+                  <span className="text-[11px] text-gray-400 truncate flex-1">
+                    {o.customer_name ? `${o.customer_name} — ` : ""}{o.kind}{o.idea ? ` · ${o.idea}` : ""}
+                  </span>
+                  {o.status !== "closed" && (
+                    <>
+                      <button onClick={() => copyOrder(o.path)} className="touch-manipulation rounded-lg border border-line px-2 py-1 text-[10px] text-gray-300 hover:border-accent/50">🔗</button>
+                      <button onClick={() => closeOrder(o.id)} className="touch-manipulation rounded-lg border border-line px-2 py-1 text-[10px] text-gray-500 hover:text-red-400">✕</button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* gallery */}
         <section>

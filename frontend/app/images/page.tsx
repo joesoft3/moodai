@@ -189,6 +189,11 @@ export default function ImagesPage() {
   const [i2vFile, setI2vFile] = useState<File | null>(null);
   const [i2vPreview, setI2vPreview] = useState<string>("");
   const [i2vBusy, setI2vBusy] = useState(false);
+  const [i2vFilm, setI2vFilm] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editFile, setEditFile] = useState<File | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [edits, setEdits] = useState<{ id: string; instruction: string; status: string; url: string | null; note: string | null }[]>([]);
 
   // detect a saved Brand Kit once → reveal the ⭐ brand toggles
   const brandProbe = useRef(false);
@@ -378,6 +383,7 @@ export default function ImagesPage() {
   async function generateI2V() {
     const p = prompt.trim();
     if (!i2vFile || p.length < 3 || i2vBusy) return;
+    if (i2vFilm) { return generateI2VFilm(); }
     setI2vBusy(true);
     setError("");
     const fd = new FormData();
@@ -405,6 +411,79 @@ export default function ImagesPage() {
       setError(e.message ?? "Image-to-video failed");
     } finally {
       setI2vBusy(false);
+    }
+  }
+
+  async function generateI2VFilm() {
+    const p = prompt.trim();
+    if (!i2vFile || p.length < 3 || i2vBusy) return;
+    setI2vBusy(true);
+    setError("");
+    const fd = new FormData();
+    fd.append("file", i2vFile);
+    fd.append("prompt", p);
+    fd.append("scenes", String(Math.max(2, storyScenes)));
+    fd.append("scene_seconds", String(storySeconds));
+    fd.append("aspect_ratio", aspect);
+    fd.append("quality", quality);
+    fd.append("style", style);
+    fd.append("audio", audioMode);
+    fd.append("voice", voiceId);
+    fd.append("music", music);
+    fd.append("tempo", String(tempo));
+    fd.append("subtitles", subtitles ? "true" : "false");
+    fd.append("use_brand", useBrand ? "true" : "false");
+    const tmpId = "pending-" + Date.now();
+    setVideos((it) => [{ id: tmpId, url: "", prompt: `📷🎞 ${p}`, pending: true, meta: { duration: storySeconds * Math.max(2, storyScenes), aspect_ratio: aspect, quality, style } }, ...it]);
+    try {
+      const queued = await apiFetch<{ film: Film }>("/media/videos/storyboard-i2v", { method: "POST", body: fd });
+      setInfo("📷➡️🎬 Your photo opens the film — rendering scenes in the background…");
+      setPrompt("");
+      setI2vFile(null);
+      setI2vPreview("");
+      setI2vFilm(false);
+      const film = await pollFilm(queued.film.id, new AbortController());
+      if (film.status === "failed") throw new Error(film.note ?? "Render failed");
+      finishTile(tmpId, `📷🎞 ${p}`, { duration: film.scene_count * film.scene_seconds, aspect_ratio: aspect, quality, style, audio: film.audio, scenes: film.scene_count } as ImgItem["meta"], film.url, film.note);
+    } catch (e: any) {
+      setVideos((it) => it.filter((i) => i.id !== tmpId));
+      setError(e.message ?? "Film-from-image failed");
+    } finally {
+      setI2vBusy(false);
+    }
+  }
+
+  async function pollEdit(eid: string) {
+    for (let i = 0; i < 60; i++) {
+      const e = await apiFetch<any>(`/media/edits/${eid}`);
+      setEdits((es) => es.map((x) => (x.id === eid ? { ...x, status: e.status, url: e.url, note: e.note } : x)));
+      if (e.status !== "rendering") return e;
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+    return null;
+  }
+
+  async function runEdit() {
+    const p = prompt.trim();
+    if (!editFile || p.length < 3 || editBusy) return;
+    setEditBusy(true);
+    setError("");
+    const fd = new FormData();
+    fd.append("file", editFile);
+    fd.append("instruction", p);
+    fd.append("use_brand", useBrand ? "true" : "false");
+    try {
+      const res = await apiFetch<{ edit: any }>("/media/edits", { method: "POST", body: fd });
+      setEdits((es) => [{ ...res.edit }, ...es.slice(0, 9)]);
+      setPrompt("");
+      setInfo("✂️ Editing in the background — trimming, reframing, brand-stamping as asked…");
+      const done = await pollEdit(res.edit.id);
+      if (done?.status === "done" && done.url) setInfo("✨ Edit ready — play or download it below!");
+      else if (done?.status === "failed") setError(done.note ?? "Edit failed");
+    } catch (e: any) {
+      setError(e.message ?? "Edit failed");
+    } finally {
+      setEditBusy(false);
     }
   }
 
@@ -503,8 +582,82 @@ export default function ImagesPage() {
                     >
                       {i2vBusy ? <Loader2 size={13} className="animate-spin" /> : "🎬"} Animate image
                     </button>
+                    <label className="flex items-center gap-2 text-[11px] text-gray-400 cursor-pointer select-none w-fit">
+                      <input type="checkbox" checked={i2vFilm} onChange={(e) => setI2vFilm(e.target.checked)} className="accent-[#7c9bff]" />
+                      🎞 Make it a film — my photo opens scene 1, the director continues the story
+                    </label>
+                    {i2vFilm && (
+                      <p className="text-[10px] text-gray-600">
+                        Uses your scene/audio settings below ({Math.max(2, storyScenes)} scenes × {storySeconds}s)
+                      </p>
+                    )}
                   </div>
                 </div>
+              </div>
+            )}
+          </section>
+          {/* ✂️ Auto-Edit */}
+          <section className="rounded-xl border border-line bg-white/5 overflow-hidden">
+            <button onClick={() => setEditOpen((o) => !o)} className="touch-manipulation w-full flex items-center gap-2 px-4 py-3 text-left">
+              <span className="text-base">✂️</span>
+              <span className="text-sm font-semibold text-gray-100">Auto-Edit Video</span>
+              <span className="text-xs text-gray-500">upload a clip, tell the editor what to do</span>
+              <ChevronDown size={15} className={`ml-auto text-gray-500 transition-transform ${editOpen ? "rotate-180" : ""}`} />
+            </button>
+            {editOpen && (
+              <div className="px-4 pb-4 pt-3 border-t border-line space-y-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {["Make it vertical for TikTok + subtitles", "Cut the first 3 seconds, add lofi music",
+                    "Black & white, slower, my logo on it", "Speed it up 1.5x, mute the audio"].map((ex) => (
+                    <button key={ex} onClick={() => setPrompt(ex)}
+                      className="touch-manipulation rounded-full border border-line px-2.5 py-1 text-[10px] text-gray-400 hover:border-accent/50 transition">{ex}</button>
+                  ))}
+                </div>
+                <div className="flex items-start gap-3">
+                  <label className="touch-manipulation relative flex h-16 w-28 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-dashed border-line bg-white/5 overflow-hidden hover:border-accent/50 transition">
+                    <span className="text-center text-[10px] text-gray-500 px-1">
+                      {editFile ? `🎞 ${editFile.name.slice(0, 14)}…` : <>📹<br />Upload clip<br />MP4 · MOV · ≤150MB</>}
+                    </span>
+                    <input type="file" accept="video/mp4,video/quicktime,video/webm,video/x-msvideo" className="hidden"
+                      onChange={(e) => setEditFile(e.target.files?.[0] ?? null)} />
+                  </label>
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <p className="text-[11px] text-gray-400">
+                      Describe the edit in the prompt box — trim, reframe to any aspect, subtitles, speed, color grade, music bed, logo watermark.
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <button onClick={runEdit} disabled={!editFile || prompt.trim().length < 3 || editBusy}
+                        className="touch-manipulation flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-[#0b0f14] disabled:opacity-40 hover:brightness-110 transition">
+                        {editBusy ? <Loader2 size={13} className="animate-spin" /> : "✂️"} Edit my video
+                      </button>
+                      {hasBrand && (
+                        <label className="flex items-center gap-1.5 text-[11px] text-gray-400 cursor-pointer select-none">
+                          <input type="checkbox" checked={useBrand} onChange={(e) => setUseBrand(e.target.checked)} className="accent-amber-400" />
+                          ⭐ my logo
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {edits.length > 0 && (
+                  <div className="space-y-2 pt-1">
+                    {edits.map((e) => (
+                      <div key={e.id} className="flex items-center gap-3 rounded-lg border border-line px-3 py-2">
+                        <span className="text-base">{e.status === "done" ? "✅" : e.status === "failed" ? "⚠️" : "⏳"}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate text-[11px] text-gray-300">{e.instruction}</p>
+                          {e.note && e.status === "done" && <p className="truncate text-[10px] text-gray-600">{e.note}</p>}
+                        </div>
+                        {e.status === "done" && e.url && (
+                          <a href={e.url} target="_blank" rel="noreferrer" download
+                            className="touch-manipulation rounded-lg bg-accent/15 border border-accent/40 px-2.5 py-1.5 text-[10px] font-semibold text-accent hover:bg-accent/25 transition">
+                            ▶ Watch / ⬇ Save
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </section>

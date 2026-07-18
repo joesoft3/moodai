@@ -263,6 +263,7 @@ async def generate_storyboard(
     tempo: float = 1.0,
     dialogue: bool = False,
     voice_b: str = "onyx",
+    ref_image: dict | None = None,
     on_scene: Callable[[int, int], None] | None = None,
     on_plan: Callable[[list], None] | None = None,
 ) -> tuple[StoryboardResult | None, str | None, str | None]:
@@ -295,7 +296,9 @@ async def generate_storyboard(
 
     async def _render(i: int, shot: str) -> tuple[int, str]:
         async with sem:
-            url, _i2v = await video.generate(shot, scene_opts)
+            url, _i2v = await video.generate(
+                shot, scene_opts, image=(ref_image if i == 0 else None)
+            )
             progress["done"] += 1
             if on_scene:
                 on_scene(progress["done"], scene_count)

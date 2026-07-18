@@ -37,7 +37,7 @@ NARRATION_VOICES = {"alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", 
 
 WORDS_PER_SECOND = 2.2          # natural narration pace
 TTS_HARD_CAP_WORDS = 120        # keeps TTS snappy even for 15s clips
-MEDIA_NAME_RE = re.compile(r"^[a-f0-9]{32}\.mp4$")
+MEDIA_NAME_RE = re.compile(r"^[a-f0-9]{32}(_e)?\.mp4$")
 
 
 @dataclass

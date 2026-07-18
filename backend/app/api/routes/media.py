@@ -14,10 +14,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
-from ...db.models import BrandKit, Design, Film, PendingAction, User
+from ...db.models import BrandKit, Design, Edit, Film, PendingAction, User
 from ...db.session import get_db
 from ...schemas import SocialDraftRequest, StoryboardRequest, VideoEnhanceRequest, VideoRequest
-from ...services import film_jobs, soundtrack, storyboard
+from ...services import editor_jobs, film_jobs, soundtrack, storyboard
 from ...services.llm import friendly_ai_error, llm
 from ...services.media import STYLE_PRESETS, VideoGenerationError, VideoNotConfigured, VideoOptions, video
 from ...services.metering import PLAN_LIMITS, count_today, record_usage
@@ -26,7 +26,7 @@ from ..deps import enforce_rate_limit, get_current_user
 
 router = APIRouter()
 
-SERVED_NAME_RE = re.compile(r"^[a-f0-9]{32}(_p\.jpg|\.mp4)$")
+SERVED_NAME_RE = re.compile(r"^[a-f0-9]{32}(_p\.jpg|_e\.mp4|\.mp4)$")
 
 ENHANCER_PROMPT = """You are a professional AI-video prompt engineer (Veo/Sora/Grok Video grade).
 Rewrite the user's rough idea into ONE dense, production-ready video prompt covering:
@@ -37,6 +37,82 @@ Include an aspect-agnostic description (framing handled separately)."""
 
 _I2V_MIMES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 _I2V_MAX_BYTES = 8 * 1024 * 1024
+
+
+
+_EDIT_MIMES = {"video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm",
+               "video/x-msvideo": "avi"}
+_EDIT_MAX_BYTES = 150 * 1024 * 1024
+
+
+def _edit_out(e: Edit) -> dict:
+    return {
+        "id": e.id,
+        "instruction": e.instruction,
+        "status": e.status,
+        "url": f"/media/files/{e.out_name}" if e.status == "done" and e.out_name else None,
+        "plan": json.loads(e.plan_json or "{}") if e.plan_json else {},
+        "note": e.note or None,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+    }
+
+
+@router.post("/edits", status_code=status.HTTP_202_ACCEPTED)
+async def create_edit(
+    file: UploadFile = File(...),
+    instruction: str = Form(min_length=3, max_length=1000),
+    use_brand: bool = Form(default=False),
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """✂️ Upload a clip + plain-English instruction → automatic edit (202 + poll)."""
+    await enforce_rate_limit(f"edit:{user.id}", 2)
+    cap = PLAN_LIMITS.get(user.plan, PLAN_LIMITS["free"]).get("edit_day", 3)
+    if cap and await count_today(db, user.id, "edit") >= cap:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Daily edit limit reached for the {user.plan} plan ({cap}/day). Upgrade for more.")
+    mime = (file.content_type or "").lower()
+    if mime not in _EDIT_MIMES:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                            "Upload an MP4, MOV, WebM or AVI clip")
+    raw = await file.read()
+    if not raw or len(raw) > _EDIT_MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            f"Clip must be ≤ {_EDIT_MAX_BYTES // (1024 * 1024)} MB")
+    brand_logo_file = ""
+    if use_brand:
+        bk = await db.get(BrandKit, user.id)
+        if bk and bk.logo_design_id:
+            lg = await db.get(Design, bk.logo_design_id)
+            if lg and lg.user_id == user.id and lg.kind == "logo":
+                brand_logo_file = lg.file
+    src_name = f"{uuid.uuid4().hex}_src.{_EDIT_MIMES[mime]}"
+    media_dir = settings.MEDIA_DIR
+    os.makedirs(media_dir, exist_ok=True)
+    with open(os.path.join(media_dir, src_name), "wb") as fh:
+        fh.write(raw)
+    row = Edit(id=uuid.uuid4().hex, user_id=user.id,
+               instruction=instruction.strip(), src_name=src_name)
+    db.add(row)
+    await db.commit()
+    editor_jobs.launch(row.id, {"user_id": user.id, "instruction": row.instruction,
+                                "src_name": src_name, "brand_logo_file": brand_logo_file})
+    return {"edit": _edit_out(row)}
+
+
+@router.get("/edits")
+async def list_edits(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = (await db.execute(
+        select(Edit).where(Edit.user_id == user.id).order_by(Edit.created_at.desc()).limit(25)
+    )).scalars().all()
+    return {"edits": [_edit_out(e) for e in rows]}
+
+
+@router.get("/edits/{edit_id}")
+async def get_edit(edit_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    e = await db.get(Edit, edit_id)
+    if not e or e.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Edit not found")
+    return _edit_out(e)
 
 
 @router.post("/videos/i2v")
@@ -54,7 +130,7 @@ async def image_to_video(
     """📷➡️🎬 Upload an image + a text instruction → animated video."""
     await enforce_rate_limit(f"i2v:{user.id}", 2)
     cap = PLAN_LIMITS.get(user.plan, PLAN_LIMITS["free"])["video_day"]
-    if cap and await count_today(db, user.id, "video") >= cap:
+    if cap and await _video_used_today(db, user.id) >= cap:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             f"Daily video limit reached for the {user.plan} plan ({cap}/day). Upgrade for more.",
@@ -79,10 +155,17 @@ async def image_to_video(
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
     except VideoGenerationError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
-    await record_usage(user.id, "video", settings.MODEL_VIDEO)
+    await record_usage(user.id, "i2v", settings.MODEL_VIDEO)
     note = None if image_used else "Provider ignored the reference image — generated from your instruction alone."
     return {"video_url": url, "image_used": image_used, "note": note,
             "prompt": instruction.strip(), "duration": opts.duration}
+
+async def _video_used_today(db: AsyncSession, user_id: str) -> int:
+    """Shared daily budget: text-to-video + image-to-video draw from the same wallet."""
+    v = await count_today(db, user_id, "video")
+    v += await count_today(db, user_id, "i2v")
+    return v
+
 
 @router.post("/videos")
 async def generate_video(
@@ -280,6 +363,46 @@ def _film_kwargs(f: Film) -> dict:
     }
 
 
+@router.post("/videos/storyboard-i2v", status_code=status.HTTP_202_ACCEPTED)
+async def storyboard_from_image(
+    file: UploadFile = File(...),
+    prompt: str = Form(min_length=3, max_length=2000),
+    scenes: int = Form(default=3, ge=2, le=4),
+    scene_seconds: int = Form(default=6, ge=5, le=8),
+    aspect_ratio: str = Form(default="16:9"),
+    quality: str = Form(default="720p"),
+    style: str = Form(default="cinematic"),
+    audio: str = Form(default="cinema"),
+    voice: str = Form(default="alloy"),
+    music: str = Form(default="soft"),
+    tempo: float = Form(default=1.0),
+    subtitles: bool = Form(default=False),
+    use_brand: bool = Form(default=False),
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """📷➡️🎬 Your photo opens the film — scene 1 animates the reference frame,
+    the director plans the remaining scenes around it."""
+    await enforce_rate_limit(f"video:{user.id}", 2)
+    mime = (file.content_type or "").lower()
+    if mime not in _I2V_MIMES:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                            "Upload a PNG, JPEG or WebP image")
+    raw = await file.read()
+    if not raw or len(raw) > _I2V_MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            f"Image must be ≤ {_I2V_MAX_BYTES // (1024 * 1024)} MB")
+    req = StoryboardRequest(
+        prompt=prompt, scenes=scenes, scene_seconds=scene_seconds,
+        aspect_ratio=aspect_ratio if aspect_ratio in ("16:9", "9:16", "1:1") else "16:9",
+        quality=quality if quality in ("720p", "1080p") else "720p",
+        style=style, audio=audio if audio in ("none", "narration", "cinema") else "cinema",
+        voice=voice, music=music if music in ("soft", "epic", "lofi", "tension") else "soft",
+        tempo=max(0.7, min(1.3, tempo)), subtitles=subtitles, use_brand=use_brand,
+    )
+    ref_image = {"url": f"data:{mime};base64,{base64.b64encode(raw).decode()}"}
+    return await _launch_storyboard(req, db, user, ref_image=ref_image)
+
+
 @router.post("/videos/storyboard", status_code=status.HTTP_202_ACCEPTED)
 async def generate_storyboard_endpoint(
     req: StoryboardRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
@@ -288,6 +411,13 @@ async def generate_storyboard_endpoint(
     Quota pre-check blocks over-cap runs before anything is spent; scenes render
     2-wide in parallel; every milestone persists to the films row."""
     await enforce_rate_limit(f"video:{user.id}", 2)
+    return await _launch_storyboard(req, db, user)
+
+
+async def _launch_storyboard(req: StoryboardRequest, db: AsyncSession, user: User,
+                             ref_image: dict | None = None):
+    """Shared launch logic for /videos/storyboard and /videos/storyboard-i2v (202 + poll)."""
+
     brand_logo_file, brand_name, brand_prompt = "", "", ""
     if req.use_brand:
         from ...services import designer as _dzn
@@ -307,7 +437,7 @@ async def generate_storyboard_endpoint(
     scene_count = len(custom) if custom else req.scenes
     cap = PLAN_LIMITS.get(user.plan, PLAN_LIMITS["free"])["video_day"]
     if cap:
-        used = await count_today(db, user.id, "video")
+        used = await _video_used_today(db, user.id)
         if used + scene_count > cap:
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
@@ -368,6 +498,7 @@ async def generate_storyboard_endpoint(
             "tempo": req.tempo,
             "dialogue": req.dialogue,
             "voice_b": req.voice_b,
+            "ref_image": ref_image,
             "brand_logo_file": brand_logo_file,
             "brand_name": brand_name,
         },

@@ -401,6 +401,28 @@ async def admin_engagement(db: AsyncSession = Depends(get_db), admin: User = Dep
         )) or 0
     )
 
+    # 🎨 Creative studio mix (30d) — videos, i2v, designs, edits, exports + rough spend
+    studio_rows = (
+        await db.execute(
+            select(UsageEvent.kind, func.count(UsageEvent.id))
+            .where(UsageEvent.created_at >= cutoff, UsageEvent.kind.in_(
+                ["video", "i2v", "design", "edit", "design_export", "film"]))
+            .group_by(UsageEvent.kind)
+        )
+    ).all()
+    studio_mix = {k: int(n) for k, n in studio_rows}
+    COSTS = {"video": 0.12, "i2v": 0.12, "design": 0.04, "edit": 0.05, "film": 0.12, "design_export": 0.0}
+    studio_cost = round(sum(n * COSTS.get(k, 0) for k, n in studio_mix.items()), 2)
+
+    # design kind mix straight from the designs table (30d)
+    from ...db.models import Design as _D
+    dk_rows = (
+        await db.execute(
+            select(_D.kind, func.count(_D.id)).where(_D.created_at >= cutoff).group_by(_D.kind)
+        )
+    ).all()
+    design_kinds = {k: int(n) for k, n in dk_rows}
+
     # Per-device activity — newest 15 devices with each owner's 30d event counts
     devs = (
         await db.execute(
@@ -454,6 +476,9 @@ async def admin_engagement(db: AsyncSession = Depends(get_db), admin: User = Dep
             "tokens_pruned_30d": pruned,
             "delivery_rate": round(total_delivered / total_attempts, 3) if total_attempts else None,
         },
+        "studio_mix": studio_mix,
+        "studio_cost_usd": studio_cost,
+        "design_kinds": design_kinds,
         "sound": {
             "videos_30d": videos_30d,
             "with_sound_30d": sound_30d,

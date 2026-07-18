@@ -78,6 +78,7 @@ async def _run(film_id: str, kw: dict) -> None:
             tempo=kw["tempo"],
             dialogue=kw.get("dialogue", False),
             voice_b=kw.get("voice_b", "onyx"),
+            ref_image=kw.get("ref_image"),
             on_scene=on_scene,
             on_plan=on_plan,
         )

@@ -395,12 +395,23 @@ async def execute_tool(db: AsyncSession, user_id: str, name: str, args: dict) ->
             print_file=out["print_file"], note=out["note"] or "",
         )
         db.add(row)
+        order_token = str(args.get("order_token") or "")
+        if order_token:
+            from sqlalchemy import select as _sel
+            from ...db.models import DesignOrder as _Order
+            o = (await db.execute(_sel(_Order).where(_Order.token == order_token))).scalars().first()
+            if o and o.owner_id == user_id:
+                o.design_id = out["id"]
+                o.status = "delivered"
         await db.commit()
         await _meter(user_id, "design", _cfg.MODEL_IMAGE)
+        how = ("Approved & rendered ✨ Open 🎨 Design Studio → My designs to download "
+               "the web PNG or the 300-DPI Print HD file.")
+        if order_token:
+            how = ("Approved & rendered ✨ Client order DELIVERED — the customer can now "
+                   "download their files from the same order link. Also in 🎨 Design Studio.")
         return {"design_id": out["id"], "kind": kind, "width": out["width"],
-                "height": out["height"],
-                "how_to": "Approved & rendered ✨ Open 🎨 Design Studio → My designs to download "
-                          "the web PNG or the 300-DPI Print HD file."}
+                "height": out["height"], "order_token": order_token or None, "how_to": how}
     provider = TOOL_PROVIDER.get(name)
     if not provider:
         raise PluginError(f"Unknown tool: {name}")
