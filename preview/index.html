@@ -226,6 +226,8 @@
       <button onclick="show('voice', this)">🎤 Voice</button>
       <button onclick="show('images', this)">🖼 Images</button>
       <button onclick="show('files', this)">🗂 Files</button>
+      <button onclick="show('plugins', this)">🧩 Plugins</button>
+      <button onclick="show('analytics', this)">📊 Analytics</button>
       <button onclick="show('screens', this)">🖼 Screens</button>
       <button onclick="show('owner', this)">🛡 Owner</button>
       <button onclick="show('settings', this)">⚙️ Settings</button>
@@ -486,6 +488,168 @@
             </tbody>
           </table>
           <p class="note">Uploads are text-extracted, chunked & embedded into your private Qdrant doc collection — attach them to any chat, or analyze audio/video directly.</p>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- ── VIEW: PLUGIN STORE ─────────────── -->
+    <div class="view" id="view-plugins" style="height:100%">
+      <div class="scroll"><div class="inner">
+        <h2 style="font-size:18px;margin-bottom:4px">🧩 Plugin store</h2>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:18px">connect your world · one-click OAuth · every write action is staged & approved in the inbox below — never silently</p>
+
+        <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(250px,1fr));align-items:stretch">
+          <article class="card" style="margin-bottom:0">
+            <h3><span class="ic">📧</span> Gmail</h3>
+            <p style="font-size:12px;color:var(--muted);line-height:1.6">Read, draft, label &amp; send mail from any chat. Each send is staged for your OK.</p>
+            <div class="row" style="margin-top:12px"><span class="pill-open">Connected</span><button class="btn">Disconnect</button></div>
+            <div class="meter" style="margin-top:14px;margin-bottom:6px"><div class="lbl"><span>⚡ Superpowers</span></div></div>
+            <ul style="font-size:11.5px;color:var(--dim);line-height:1.9;padding-left:16px">
+              <li>“Summarise unread mail from this week”</li>
+              <li>“Draft a reply to the board invite”</li>
+              <li>“Label every Stripe receipt ‘finance’”</li>
+            </ul>
+          </article>
+          <article class="card" style="margin-bottom:0">
+            <h3><span class="ic">📅</span> Google Calendar</h3>
+            <p style="font-size:12px;color:var(--muted);line-height:1.6">Schedule, move &amp; brief on events. Human-in-the-loop approval before anything is written.</p>
+            <div class="row" style="margin-top:12px"><span class="pill-open">Connected</span><button class="btn">Disconnect</button></div>
+            <div class="meter" style="margin-top:14px;margin-bottom:6px"><div class="lbl"><span>⚡ Superpowers</span></div></div>
+            <ul style="font-size:11.5px;color:var(--dim);line-height:1.9;padding-left:16px">
+              <li>“Find a 30-min slot with Ama next week”</li>
+              <li>“Brief me before every morning meeting”</li>
+            </ul>
+          </article>
+          <article class="card" style="margin-bottom:0">
+            <h3><span class="ic">🐙</span> GitHub</h3>
+            <p style="font-size:12px;color:var(--muted);line-height:1.6">Triage issues, summarize PRs, open branches &amp; commits from chat.</p>
+            <div class="row" style="margin-top:12px"><button class="btn primary">Connect GitHub</button></div>
+            <div class="meter" style="margin-top:14px;margin-bottom:6px"><div class="lbl"><span>⚡ Superpowers</span></div></div>
+            <ul style="font-size:11.5px;color:var(--dim);line-height:1.9;padding-left:16px">
+              <li>“Summarize open PRs in moodai”</li>
+              <li>“File a bug from this traceback”</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="card">
+          <h3><span class="ic">✋</span> Action inbox <span class="tag pro" style="margin-left:6px">3 pending</span></h3>
+          <table>
+            <thead><tr><th>Staged action</th><th>Plugin</th><th>Staged</th><th style="text-align:right">Decision</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>Send email: “Q3 launch plan”</strong><br><span style="color:var(--dim);font-size:11px">to team@mood.ai · preview: “Hi all — attaching the Arena-tested launch copy…”</span></td>
+                <td>📧 Gmail</td><td>2 min ago</td>
+                <td style="text-align:right;white-space:nowrap"><button class="btn primary" style="padding:4px 12px;font-size:11px">Approve</button> <button class="btn" style="padding:4px 12px;font-size:11px">Reject</button></td>
+              </tr>
+              <tr>
+                <td><strong>Create event: Board sync</strong><br><span style="color:var(--dim);font-size:11px">Fri 24 Jul · 10:00–10:30 · +6 invitees</span></td>
+                <td>📅 Calendar</td><td>18 min ago</td>
+                <td style="text-align:right;white-space:nowrap"><button class="btn primary" style="padding:4px 12px;font-size:11px">Approve</button> <button class="btn" style="padding:4px 12px;font-size:11px">Reject</button></td>
+              </tr>
+              <tr>
+                <td><strong>Label 41 mails as “finance”</strong><br><span style="color:var(--dim);font-size:11px">matched: receipts from Stripe, AWS, Netlify</span></td>
+                <td>📧 Gmail</td><td>1 hr ago</td>
+                <td style="text-align:right;white-space:nowrap"><button class="btn primary" style="padding:4px 12px;font-size:11px">Approve</button> <button class="btn" style="padding:4px 12px;font-size:11px">Reject</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="note">No more pop-ups in chat — every pending action lands here (mobile: the 🧩 tab) · approvals expire after 24 h · rejects are remembered per-thread.</p>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- ── VIEW: OWNER ANALYTICS ─────────────── -->
+    <div class="view" id="view-analytics" style="height:100%">
+      <div class="scroll"><div class="inner">
+        <h2 style="font-size:18px;margin-bottom:4px">📊 Owner analytics</h2>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:18px">/admin/analytics · owner-only · 14–30 day windows · Stripe price syncs live from the Price object</p>
+
+        <div class="cards">
+          <div class="tile"><div class="v" style="color:var(--green)">$388</div><div class="l">💵 MRR (est· live price)</div></div>
+          <div class="tile"><div class="v">97</div><div class="l">💳 Pro subscribers</div></div>
+          <div class="tile"><div class="v">412</div><div class="l">🔥 Active users · 14d</div></div>
+          <div class="tile"><div class="v">1,204</div><div class="l">⚔️ Arena runs · 7d</div></div>
+          <div class="tile"><div class="v">1,284</div><div class="l">👥 Signups · total</div></div>
+        </div>
+
+        <div class="card">
+          <h3><span class="ic">📈</span> Signups &amp; active users — last 14 days</h3>
+          <svg viewBox="0 0 640 168" width="100%" role="img" aria-label="signups bar chart">
+            <line x1="24" y1="130" x2="632" y2="130" stroke="#1E293B" stroke-width="1"/>
+            <g fill="#7C9BFF">
+              <rect x="30" y="104" width="26" height="26" rx="3"/>
+              <rect x="74" y="90" width="26" height="40" rx="3"/>
+              <rect x="118" y="97" width="26" height="33" rx="3"/>
+              <rect x="162" y="82" width="26" height="48" rx="3"/>
+              <rect x="206" y="88" width="26" height="42" rx="3"/>
+              <rect x="250" y="71" width="26" height="59" rx="3"/>
+              <rect x="294" y="77" width="26" height="53" rx="3"/>
+              <rect x="338" y="62" width="26" height="68" rx="3"/>
+              <rect x="382" y="68" width="26" height="62" rx="3"/>
+              <rect x="426" y="51" width="26" height="79" rx="3"/>
+              <rect x="470" y="57" width="26" height="73" rx="3"/>
+              <rect x="514" y="40" width="26" height="90" rx="3"/>
+              <rect x="558" y="46" width="26" height="84" rx="3"/>
+              <rect x="602" y="16" width="26" height="114" rx="3"/>
+            </g>
+            <g stroke="#5B6474" stroke-width="4" opacity=".85" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="43,118 87,104 131,110 175,96 219,101 263,84 307,90 351,74 395,80 439,62 483,68 527,50 571,56 615,26"/>
+            </g>
+            <g fill="#8B94A5" font-size="9" text-anchor="middle">
+              <text x="43" y="148">Jul 5</text><text x="131" y="148">Jul 7</text><text x="219" y="148">Jul 9</text><text x="307" y="148">Jul 11</text><text x="395" y="148">Jul 13</text><text x="483" y="148">Jul 15</text><text x="571" y="148">Jul 17</text>
+            </g>
+            <g font-size="9.5" fill="#8B94A5">
+              <rect x="430" y="4" width="8" height="8" fill="#7C9BFF" rx="2"/><text x="442" y="11">signups</text>
+              <line x1="500" y1="8" x2="514" y2="8" stroke="#5B6474" stroke-width="3"/><text x="520" y="11">active</text>
+            </g>
+          </svg>
+        </div>
+
+        <div class="cards" style="grid-template-columns:1fr 1fr">
+          <div class="card" style="margin-bottom:0">
+            <h3><span class="ic">🍰</span> Usage mix · 30 days</h3>
+            <div class="row" style="align-items:center;gap:18px;flex-wrap:nowrap">
+              <svg viewBox="0 0 220 140" width="150" height="96" role="img" aria-label="usage mix donut" style="flex:none">
+                <circle cx="110" cy="70" r="50" fill="none" stroke="#1E293B" stroke-width="22"/>
+                <circle cx="110" cy="70" r="50" fill="none" stroke="#7C9BFF" stroke-width="22" stroke-dasharray="144.5 314.16" stroke-dashoffset="0" transform="rotate(-90 110 70)"/>
+                <circle cx="110" cy="70" r="50" fill="none" stroke="#34d399" stroke-width="22" stroke-dasharray="69.1 314.16" stroke-dashoffset="-144.5" transform="rotate(-90 110 70)"/>
+                <circle cx="110" cy="70" r="50" fill="none" stroke="#c084fc" stroke-width="22" stroke-dasharray="43.98 314.16" stroke-dashoffset="-213.6" transform="rotate(-90 110 70)"/>
+                <circle cx="110" cy="70" r="50" fill="none" stroke="#fbbf24" stroke-width="22" stroke-dasharray="28.3 314.16" stroke-dashoffset="-257.58" transform="rotate(-90 110 70)"/>
+                <circle cx="110" cy="70" r="50" fill="none" stroke="#5B6474" stroke-width="22" stroke-dasharray="28.3 314.16" stroke-dashoffset="-285.86" transform="rotate(-90 110 70)"/>
+                <text x="110" y="74" text-anchor="middle" fill="#E5E9F0" font-size="15" font-weight="700">41.2k</text>
+              </svg>
+              <ul style="font-size:11.5px;color:var(--muted);line-height:2;list-style:none">
+                <li><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#7C9BFF;margin-right:6px"></span>💬 Chat messages · 46%</li>
+                <li><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#34d399;margin-right:6px"></span>⚔️ Arena debates · 22%</li>
+                <li><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#c084fc;margin-right:6px"></span>🖼 Images &amp; video · 14%</li>
+                <li><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#fbbf24;margin-right:6px"></span>🎤 Voice · 9%</li>
+                <li><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#5B6474;margin-right:6px"></span>🗂 File analysis · 9%</li>
+              </ul>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:0">
+            <h3><span class="ic">🏆</span> Top users · this month</h3>
+            <table>
+              <thead><tr><th>User</th><th>Tokens</th><th>⚔️</th><th>Plan</th></tr></thead>
+              <tbody>
+                <tr><td><strong>kwame@…</strong></td><td>1.9M</td><td>118</td><td><span class="tag pro">PRO</span></td></tr>
+                <tr><td><strong>ama.op…</strong></td><td>1.2M</td><td>96</td><td><span class="tag pro">PRO</span></td></tr>
+                <tr><td><strong>admin@…</strong></td><td>840k</td><td>64</td><td><span class="tag admin">OWNER</span></td></tr>
+                <tr><td><strong>yaw.de…</strong></td><td>512k</td><td>41</td><td><span class="tag">FREE</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3><span class="ic">💵</span> Revenue</h3>
+          <div class="row" style="gap:10px">
+            <span class="tag pro">pro · $4.00/mo · live from Stripe Price</span>
+            <span class="tag">97 active subs</span>
+            <span class="tag" style="border-color:rgba(52,211,153,.4);color:var(--green)">MRR ≈ $388</span>
+          </div>
+          <p class="note">Arena economics: 212 debates today · 7-day trend +38% · unique users grew 3.1× since the ⚔️ tab shipped. (Billing wiring deferred — dashboard already speaks Stripe when it ships.)</p>
         </div>
       </div></div>
     </div>

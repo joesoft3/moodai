@@ -99,6 +99,50 @@ jobs:
               print("manifest patched")
           PY
 
+      - name: Enable R8 minification + resource shrinking (slim APKs)
+        working-directory: mobile
+        run: |
+          python3 - << 'PY'
+          import pathlib
+          patched = False
+          for name in ("android/app/build.gradle.kts", "android/app/build.gradle"):
+              p = pathlib.Path(name)
+              if not p.exists():
+                  continue
+              s = p.read_text()
+              anchor_kts = 'signingConfig = signingConfigs.getByName("debug")'
+              anchor_groovy = 'signingConfig signingConfigs.debug'
+              if anchor_kts in s:
+                  addition = ("            minifyEnabled = true\n"
+                              "            shrinkResources = true\n"
+                              '            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")')
+                  s = s.replace(anchor_kts, anchor_kts + "\n" + addition, 1)
+                  print("R8 patch applied (kts):", p)
+                  patched = True
+              elif anchor_groovy in s:
+                  addition = ("            minifyEnabled true\n"
+                              "            shrinkResources true\n"
+                              "            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'")
+                  s = s.replace(anchor_groovy, anchor_groovy + "\n" + addition, 1)
+                  print("R8 patch applied (groovy):", p)
+                  patched = True
+              p.write_text(s)
+          if not patched:
+              print("note: release-block anchor not found - skipping R8 patch (APKs stay unshrunk)")
+          rules = pathlib.Path("android/app/proguard-rules.pro")
+          rules.write_text("\n".join([
+              "# Keep everything Flutter + plugins reach via channels/reflection.",
+              "-keep class io.flutter.** { *; }",
+              "-keep class io.flutter.plugins.** { *; }",
+              "-keep class com.llfbandit.record.** { *; }",
+              "-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,Exceptions",
+              "-dontwarn io.flutter.**",
+              "-dontwarn org.conscrypt.**",
+              "",
+          ]))
+          print("wrote", rules)
+          PY
+
       - name: Pub get
         working-directory: mobile
         run: flutter pub get
@@ -107,28 +151,54 @@ jobs:
         working-directory: mobile
         run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
 
-      - name: Build release APK (dev-signed)
+      - name: Build release APKs — universal + split-per-ABI (obfuscated, R8-shrunk)
         working-directory: mobile
         env:
           MOBILE_API_URL: ${{ inputs.api_url || secrets.MOOD_MOBILE_API_URL }}
         run: |
           ARGS=""
           if [ -n "$MOBILE_API_URL" ]; then ARGS="--dart-define=API_URL=$MOBILE_API_URL"; fi
-          flutter build apk --release $ARGS
+          # universal APK (all devices) + per-ABI APKs (much smaller downloads)
+          flutter build apk --release --obfuscate --split-debug-info=build/app/symbols-universal $ARGS
+          flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/app/symbols-abi $ARGS
+          echo "── APK sizes ──"
+          du -h build/app/outputs/flutter-apk/*.apk
+          echo "── obfuscation symbols ──"
+          du -sh build/app/symbols-universal build/app/symbols-abi
 
-      - name: Upload APK artifact
+      - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
+        if-no-files-found: error
         with:
-          name: mood-ai-android-apk
-          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          name: mood-ai-android-apks
+          path: mobile/build/app/outputs/flutter-apk/*.apk
           retention-days: 30
 
-      - name: Attach APK to the GitHub Release (tags only)
+      - name: Upload obfuscation symbols (90d — keep for crash symbolication)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mood-ai-android-symbols
+          path: |
+            mobile/build/app/symbols-universal/
+            mobile/build/app/symbols-abi/
+          retention-days: 90
+
+      - name: Attach APKs to the GitHub Release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: mobile/build/app/outputs/flutter-apk/app-release.apk
           generate_release_notes: true
+          body: |
+            ## 📲 Which APK should I install?
+            | File | Device |
+            |---|---|
+            | **app-arm64-v8a-release.apk** ⭐ | Almost every modern Android phone |
+            | app-x86_64-release.apk | Emulators, Chromebooks, some tablets |
+            | app-armeabi-v7a-release.apk | Very old phones (pre-2015) |
+            | app-release.apk | Universal — works everywhere, bigger file |
+            On the phone: enable “Install unknown apps” for your browser → tap the downloaded APK → done.
+          files: |
+            mobile/build/app/outputs/flutter-apk/*.apk
 
 # Release-signing for Play distribution (later):
 #   keytool -genkey -v -keystore mood-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias mood
