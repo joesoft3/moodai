@@ -43,6 +43,21 @@ jobs:
         run: |
           flutter create --platforms=android --project-name mood_ai_mobile --org ai.mood --no-overwrite .
           rm -f test/widget_test.dart  # stock template test references a MyApp that isn't ours
+          # modern plugin lifecycle (flutter_plugin_android_lifecycle) needs compileSdk ≥ 36
+          python3 - << 'PY'
+          import pathlib, re
+          for name in ("android/app/build.gradle.kts", "android/app/build.gradle"):
+              p = pathlib.Path(name)
+              if not p.exists():
+                  continue
+              s = p.read_text()
+              s = re.sub(r"compileSdk\s*=\s*flutter\.compileSdkVersion", "compileSdk = 36", s)
+              s = re.sub(r'compileSdk\s+flutter\.compileSdkVersion', 'compileSdk 36', s)
+              s = re.sub(r"targetSdk\s*=\s*flutter\.targetSdkVersion", "targetSdk = 36", s)
+              s = re.sub(r'targetSdk\s+flutter\.targetSdkVersion', 'targetSdk 36', s)
+              p.write_text(s)
+              print("patched", p)
+          PY
 
       - name: Grant runtime permissions (release manifest)
         working-directory: mobile
