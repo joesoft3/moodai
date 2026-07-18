@@ -91,7 +91,9 @@ Railway redeploys automatically (~1 min).
 > Repo → *Settings → Secrets and variables → Actions* → add `NETLIFY_AUTH_TOKEN`
 > (Netlify: *User settings → Applications → New access token*) and `NETLIFY_SITE_ID`
 > (Netlify: *Site settings → General → Site details → API ID*), plus a secret
-> `NEXT_PUBLIC_API_URL`. After that the `deploy-netlify` workflow turns green on every
+> `NEXT_PUBLIC_API_URL`, **and** a *Variables* entry `NETLIFY_CONNECTED` = `true`
+> (same page, *Variables* tab — the workflow skips silently until you flip it).
+> After that the `deploy-netlify` workflow turns green on every
 > push to `main`. **Pick ONE deploy driver** — Netlify-Git (B1) or the workflow — not both.
 
 ---
