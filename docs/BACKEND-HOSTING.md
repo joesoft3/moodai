@@ -5,7 +5,21 @@ Pick one path — all assume your `.env` is provisioned (`scripts/provision-env.
 
 ---
 
-## Path A — Railway (easiest, ~10 min)
+## Path A — Vercel (serverless, free tier, ~6 min)
+
+The full click-by-click guide ships as **[docs/DEPLOY-VERCEL.md](DEPLOY-VERCEL.md)**.
+
+TL;DR: import `joesoft3/moodai` → Root Directory **`backend`** → add env vars
+(hosted Postgres/Supabase `DATABASE_URL` is the only hard requirement beyond
+`JWT_SECRET` + `XAI_API_KEY`) → Deploy → `/healthz` returns `{"ok":true}`.
+Every push to `main` can auto-deploy via the shipped `deploy-vercel` GitHub Action.
+
+Serverless differences to know (details + fixes in the guide): uploads/media
+live in `/tmp` (ephemeral), 60 s request budget on Hobby, voice **live**
+WebSocket unavailable (HTTP voice works), memory embeddings go through the
+OpenAI-compatible API (slim image — no local ONNX).
+
+## Path B — Railway (container, ~10 min)
 
 1. [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo** → `joesoft3/moodai`.
 2. The repo ships **`railway.toml`** at the root — it points the builder at `backend/Dockerfile`,
@@ -19,7 +33,7 @@ Pick one path — all assume your `.env` is provisioned (`scripts/provision-env.
    REDIS_URL=<railway-redis-url>
    QDRANT_URL=http://<qdrant-service>:6333
    XAI_API_KEY=...   (plus OPENAI/GEMINI for the full arena)
-   JWT_SECRET=<from .env>   APP_PASSWORD=<gate>   ADMIN_BOOTSTRAP_PASSWORD=<owner>
+   JWT_SECRET=<from .env>   ADMIN_BOOTSTRAP_PASSWORD=<owner>
    STRIPE_* if billing
    CORS_ORIGINS=https://<your-site>.netlify.app
    FRONTEND_URL=https://<your-site>.netlify.app
@@ -32,14 +46,14 @@ Pick one path — all assume your `.env` is provisioned (`scripts/provision-env.
 Uploads are ephemeral on Railway free tiers — attach a volume at `/data/storage`
 and set `UPLOAD_DIR=/data/storage`.
 
-## Path B — Render (blueprint, ~15 min)
+## Path C — Render (blueprint, ~15 min)
 
 `render.yaml` ships in the repo — Render → **New → Blueprint** → paste the repo URL.
 It spins up: the API (Docker), managed Postgres, managed Redis, and Qdrant.
 Fill the secret env vars when prompted, add the Netlify origin to `CORS_ORIGINS`,
 then run the smoke script against `https://<svc>.onrender.com`.
 
-## Path C — Any VPS (full control)
+## Path D — Any VPS (full control)
 
 The complete Docker-compose path (API + Postgres + Redis + Qdrant + Caddy with
 automatic TLS for your domain and customers' white-label domains) is in

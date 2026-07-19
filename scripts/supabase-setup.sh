@@ -27,7 +27,7 @@ if [[ "$DSN" != *sslmode* ]]; then
   if [[ "$DSN" == *\?* ]]; then DSN="$DSN&sslmode=require"; else DSN="$DSN?sslmode=require"; fi
 fi
 
-echo "📦 Installing deps…" && pip install -q -r requirements.txt
+echo "📦 Installing deps…" && pip install -q -r requirements-full.txt
 echo "🚀 Pushing schema (alembic upgrade head)…"
 DATABASE_URL="$DSN" alembic upgrade head
 echo "🔎 Verifying tables…"

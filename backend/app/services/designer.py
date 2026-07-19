@@ -345,7 +345,9 @@ async def render_export(src_path: Path, dst_path: Path, preset: str) -> bool:
 
 
 # --------------------------------------------------------- ⭐ brand app icon
+_BUNDLED_FONT = str(Path(__file__).resolve().parent.parent / "assets" / "fonts" / "DejaVuSans-Bold.ttf")
 _FONT_CANDIDATES = (
+    _BUNDLED_FONT,  # always present — serverless images (Vercel/Lambda) ship no system fonts
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     "/usr/share/fonts/freefont/FreeSansBold.otf",

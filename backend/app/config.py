@@ -1,4 +1,6 @@
-from pydantic import field_validator
+import os
+
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,7 +27,8 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALG: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
-    UPLOAD_DIR: str = "./storage"
+    UPLOAD_DIR: str = "./storage"       # auto-relocated to /tmp on serverless (see _serverless_relocate)
+    MOOD_SERVERLESS: str = ""           # force "1" to emulate a serverless host locally
     MAX_UPLOAD_MB: int = 25
     MAX_AUDIO_UPLOAD_MB: int = 15  # music / spoken-word uploads for AI analysis
     MAX_VIDEO_UPLOAD_MB: int = 50  # mp4/mov uploads for scene-by-scene AI analysis
@@ -108,7 +111,8 @@ class Settings(BaseSettings):
 
     # Memory / RAG
     MEMORY_COLLECTION: str = "user_memories"
-    EMBED_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBED_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"  # local fastembed (skipped when not installed)
+    EMBED_API_MODEL: str = "text-embedding-3-small"  # fallback over OPENAI_BASE_URL when fastembed absent
     EMBED_VECTOR_SIZE: int = 384
     MEMORY_TOP_K: int = 6
 
@@ -157,6 +161,25 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def serverless(self) -> bool:
+        """True when running on an ephemeral host (Vercel / AWS Lambda / forced via MOOD_SERVERLESS=1)."""
+        return bool(
+            self.MOOD_SERVERLESS == "1"
+            or os.environ.get("VERCEL") == "1"
+            or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+        )
+
+    @model_validator(mode="after")
+    def _serverless_relocate(self):
+        """Serverless filesystems are read-only except /tmp — move writable dirs there."""
+        if self.serverless:
+            if self.UPLOAD_DIR.rstrip("/") in ("./storage", "storage", ""):
+                self.UPLOAD_DIR = "/tmp/mood-uploads"
+            if not self.MEDIA_DIR.startswith("/tmp"):
+                self.MEDIA_DIR = "/tmp/mood-media"
+        return self
 
 
 settings = Settings()

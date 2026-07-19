@@ -1,0 +1,4 @@
+# Full install for Docker / Railway / Render / VPS / local dev:
+# everything in requirements.txt PLUS the local ONNX embedder.
+-r requirements.txt
+fastembed>=0.4

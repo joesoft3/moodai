@@ -32,7 +32,7 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install backend deps (+ pytest)
-        run: pip install -q -r backend/requirements.txt pytest
+        run: pip install -q -r backend/requirements-full.txt pytest
 
       - name: Compile-check every backend module
         run: find backend/app -name "*.py" -exec python -m py_compile {} +

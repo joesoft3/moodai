@@ -11,7 +11,10 @@ passlib>=1.7
 python-multipart>=0.0.9
 openai>=1.50
 qdrant-client>=1.11
-fastembed>=0.4
+# fastembed intentionally NOT here: it pulls onnxruntime (~200 MB unpacked) which
+# exceeds serverless function bundles (Vercel 250 MB). Container/dev hosts get it
+# via requirements-full.txt; slim hosts automatically use the embeddings API
+# fallback (see app/services/memory.py).
 redis>=5.0
 httpx>=0.27
 pypdf>=4.2
@@ -27,3 +30,4 @@ opentelemetry-exporter-otlp-proto-http>=1.27
 opentelemetry-instrumentation-fastapi>=0.48b0
 opentelemetry-instrumentation-httpx>=0.48b0
 aiosqlite>=0.20
+imageio-ffmpeg>=0.5.1   # static ffmpeg fallback for apt-less hosts (Vercel/Lambda); unused when ffmpeg is on PATH

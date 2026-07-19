@@ -1,7 +1,16 @@
 """Long-term memory: extract durable user facts with a cheap model, embed locally,
 store/retrieve in Qdrant (per-user scoped).
 
-First embed triggers a one-time ~90 MB ONNX model download (fastembed).
+First local embed triggers a one-time ~90 MB ONNX model download (fastembed).
+
+Embedding backends (auto, in order):
+1. fastembed local ONNX — full hosts (Docker, Railway, dev machines)
+2. OpenAI-compatible /embeddings API (OPENAI_BASE_URL + EMBED_API_MODEL,
+   pinned to EMBED_VECTOR_SIZE dims so the Qdrant collection stays consistent)
+   — slim/serverless images where fastembed + onnxruntime don't fit (Vercel)
+
+If neither is available, embed() raises EmbeddingUnavailable; callers already
+fail-open so chat keeps working with memory/RAG simply disabled.
 """
 
 import asyncio
@@ -10,7 +19,12 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastembed import TextEmbedding
+import httpx
+
+try:  # heavy local embedder — optional so slim/serverless builds can skip it
+    from fastembed import TextEmbedding
+except Exception:  # pragma: no cover - exercised in slim deployments
+    TextEmbedding = None
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
@@ -30,7 +44,11 @@ from .llm import llm
 log = logging.getLogger(__name__)
 
 _qdrant: AsyncQdrantClient | None = None
-_embedder: TextEmbedding | None = None
+_embedder: "TextEmbedding | None" = None
+
+
+class EmbeddingUnavailable(RuntimeError):
+    """No embedding backend configured (no fastembed install, no API key)."""
 
 
 def qdrant() -> AsyncQdrantClient:
@@ -40,9 +58,11 @@ def qdrant() -> AsyncQdrantClient:
     return _qdrant
 
 
-def _get_embedder() -> TextEmbedding:
+def _get_embedder():
     global _embedder
     if _embedder is None:
+        if TextEmbedding is None:
+            raise EmbeddingUnavailable("fastembed is not installed in this environment")
         _embedder = TextEmbedding(settings.EMBED_MODEL)
     return _embedder
 
@@ -51,8 +71,35 @@ def _embed_sync(texts: list[str]) -> list[list[float]]:
     return [v.tolist() for v in _get_embedder().embed(texts)]
 
 
+async def _embed_via_api(texts: list[str]) -> list[list[float]]:
+    """OpenAI-compatible embeddings fallback (serverless slim images).
+
+    Asks for EMBED_VECTOR_SIZE dims so vectors match the Qdrant collection;
+    providers that don't support the dimensions param get a lean retry.
+    """
+    if not settings.OPENAI_API_KEY:
+        raise EmbeddingUnavailable(
+            "no local fastembed and no OPENAI_API_KEY configured for the embeddings API"
+        )
+    headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}"}
+    payload: dict = {"model": settings.EMBED_API_MODEL, "input": texts}
+    if settings.EMBED_VECTOR_SIZE:
+        payload["dimensions"] = settings.EMBED_VECTOR_SIZE
+    async with httpx.AsyncClient(base_url=settings.OPENAI_BASE_URL, headers=headers, timeout=30) as client:
+        r = await client.post("/embeddings", json=payload)
+        if r.status_code == 400 and "dimensions" in payload:
+            # provider doesn't support dimension hints — retry minimal payload
+            payload.pop("dimensions", None)
+            r = await client.post("/embeddings", json=payload)
+        r.raise_for_status()
+    data = r.json().get("data") or []
+    return [d["embedding"] for d in sorted(data, key=lambda d: d.get("index", 0))]
+
+
 async def embed(texts: list[str]) -> list[list[float]]:
-    return await asyncio.to_thread(_embed_sync, texts)
+    if TextEmbedding is not None:
+        return await asyncio.to_thread(_embed_sync, texts)
+    return await _embed_via_api(texts)
 
 
 async def init_memory_collection() -> None:

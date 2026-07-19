@@ -1,15 +1,27 @@
-# 🚀 Mood AI — Go-Live Click-Sheet (Railway → Netlify → Phone)
+# 🚀 Mood AI — Go-Live Click-Sheet (Vercel or Railway → Netlify → Phone)
 
 The whole app goes live in **~15 minutes of clicking**. Do the parts **in order** —
 each step has a 🖱 = a click in your browser, and a ✅ = how you know it worked.
 
 > 🔐 Never paste passwords or tokens into GitHub issues/comments — set them only in
-> Railway/Netlify dashboards as shown. Never set `APP_PASSWORD` anywhere (that
+> Vercel/Railway/Netlify dashboards as shown. Never set `APP_PASSWORD` anywhere (that
 > would turn the removed site gate back on).
 
 ---
 
-## Part A — Backend on Railway 🚄 (≈8 min)
+## Part A — Backend: pick ONE host ▲/🚄
+
+**Option 1 — Vercel ▲ (serverless, free tier, ≈6 min)** — recommended default.
+👉 Follow **[docs/DEPLOY-VERCEL.md](DEPLOY-VERCEL.md)** (includes the one-time
+Supabase database step), then come back here at **Part B**.
+
+**Option 2 — Railway 🚄 (Docker container, ≈8 min)** — pick this if you'll be
+rendering long videos often (no 60 s budget) or want voice *live* WebSocket.
+Steps below.
+
+---
+
+### Part A (Option 2) — Backend on Railway 🚄 (≈8 min)
 
 **A1.** 🖱 Go to <https://railway.app> → **Login with GitHub** (use the **Joesoft3** GitHub account).
 

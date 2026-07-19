@@ -35,10 +35,12 @@ Mood AI is a full-stack AI super-app scaffold that delivers Grok-style capabilit
 > model routing strategy, multi-agent design, plugin framework, and scaling roadmap.
 > Ready to ship? **[docs/DEPLOY-WALKTHROUGH.md](docs/DEPLOY-WALKTHROUGH.md)** — zero to live,
 > web app on **Netlify** ([docs/NETLIFY-DEPLOY.md](docs/NETLIFY-DEPLOY.md)) · backend on
-> **Railway/Render/VPS** ([docs/BACKEND-HOSTING.md](docs/BACKEND-HOSTING.md)) · verify with the
+> **Vercel** ([docs/DEPLOY-VERCEL.md](docs/DEPLOY-VERCEL.md)) or **Railway/Render/VPS**
+> ([docs/BACKEND-HOSTING.md](docs/BACKEND-HOSTING.md)) · verify with the
 > **live smoke** ([docs/LIVE-SMOKE.md](docs/LIVE-SMOKE.md)).
 >
-> 🔁 **Auto-deploys on push**: `deploy-netlify` workflow → Netlify on every `main` push ·
+> 🔁 **Auto-deploys on push**: `deploy-netlify` (web) + `deploy-vercel` (API) workflows →
+> production on every `main` push (each skips cleanly until connected) ·
 > `mobile-apk` workflow → tagged releases get an installable Android APK attached.
 
 [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/joesoft3/moodai)

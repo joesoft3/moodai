@@ -132,11 +132,25 @@ async def write_narration(prompt: str, seconds: int) -> str:
 
 
 def ffmpeg_path() -> str | None:
-    """Resolve the ffmpeg binary, honoring an explicit path first."""
+    """Resolve the ffmpeg binary, honoring an explicit path first.
+
+    Order: FFMPEG_PATH env → $PATH → imageio-ffmpeg's bundled static build
+    (serverless images like Vercel/AWS Lambda have no apt; the pip wheel
+    ships a static ffmpeg with libfreetype, so drawtext flyers still work).
+    """
     configured = (settings.FFMPEG_PATH or "").strip()
     if configured and configured != "ffmpeg":
         return configured if os.path.exists(configured) else None
-    return shutil.which("ffmpeg")
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg  # lazy — only reached when PATH lookup failed
+
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        return exe if os.path.exists(exe) else None
+    except Exception:
+        return None
 
 
 async def _run(cmd: list[str], timeout: int = 180) -> tuple[int, str]:

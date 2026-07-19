@@ -1,0 +1,10 @@
+# Keep the function bundle lean — tests, dev databases and local env never ship.
+.pytest_cache/
+__pycache__/
+tests/
+storage/
+*.db
+*.sqlite3
+.env
+.env.*
+!.env.example
