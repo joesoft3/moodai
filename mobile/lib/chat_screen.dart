@@ -564,6 +564,68 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     });
   }
+        Future<void> _deleteAccountDialog() async {
+          final pw = TextEditingController();
+          var busy = false;
+          String? err;
+          final ok = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => StatefulBuilder(builder: (ctx, setSt) => AlertDialog(
+              backgroundColor: MoodColors.panel,
+              title: const Text('🗑 Delete account permanently?'),
+              content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text(
+                  'This erases EVERYTHING — chats, uploads, designs, films, memory, plugin tokens, and teams you own. It cannot be undone.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: pw,
+                  obscureText: true,
+                  decoration: const InputDecoration(hintText: 'Type your password to confirm'),
+                ),
+                if (err != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(err!, style: const TextStyle(fontSize: 11, color: Colors.redAccent)),
+                  ),
+              ]),
+              actions: [
+                TextButton(onPressed: busy ? null : () => Navigator.pop(ctx, false), child: const Text('Keep my account')),
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          if (pw.text.isEmpty) {
+                            setSt(() => err = 'Enter your password');
+                            return;
+                          }
+                          setSt(() { busy = true; err = null; });
+                          try {
+                            await Api.deleteMyAccount(pw.text);
+                            if (ctx.mounted) Navigator.pop(ctx, true);
+                          } catch (e) {
+                            setSt(() { busy = false; err = '$e'; });
+                          }
+                        },
+                  child: busy
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Delete forever'),
+                ),
+              ],
+            )),
+          );
+          pw.dispose();
+          if (ok == true && mounted) {
+            await Api.setToken(null);
+            if (!mounted) return;
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
+          }
+        }
+
 
   Future<void> _logout() async {
     await Api.setToken(null);
@@ -741,6 +803,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 leading: const Icon(Icons.logout, size: 18),
                 title: const Text('Sign out'),
                 onTap: _logout,
+              ),
+              ListTile(
+                leading: Icon(Icons.delete_forever_outlined, size: 18, color: Colors.red.shade400),
+                title: Text('Delete account', style: TextStyle(fontSize: 14, color: Colors.red.shade300)),
+                subtitle: const Text('Erase everything — required by the app stores',
+                    style: TextStyle(fontSize: 10, color: Colors.grey)),
+                onTap: () {
+                  Navigator.of(context).maybePop();
+                  _deleteAccountDialog();
+                },
               ),
             ],
           ),

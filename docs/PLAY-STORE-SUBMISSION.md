@@ -112,3 +112,12 @@ store `mood-upload.jks` + passwords in a password manager *offline* too).
 
 *Paperwork done = listing (PLAY-CONSOLE.md) + this file + the signed AAB from CI.
 Total human time: about one focused evening.* 🎬
+
+---
+
+## 🗑 Account deletion (store-required)
+
+- **In-app:** drawer → **Delete account** → password → *Delete forever* (immediate, irreversible).
+- **Web:** Settings → **Danger zone** — same flow.
+- **Public guide URL for the Data safety form:** `https://<your-web-domain>/account-deletion`
+- Scope + mechanics: [`docs/ACCOUNT-DELETION.md`](ACCOUNT-DELETION.md). Backups/logs rotate out ≤ 30 days.

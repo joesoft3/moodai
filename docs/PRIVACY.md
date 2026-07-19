@@ -3,7 +3,7 @@
 **Effective date:** 18 July 2026 · **Last updated:** 18 July 2026
 
 This policy explains what Mood AI (“we”) collects, why, and your choices. Short version:
-**your chats belong to you, plugins always ask before acting, you can delete everything.**
+**your chats belong to you, plugins always ask before acting, you can delete everything — instantly via Settings → Danger zone or the app drawer; full scope documented at `/account-deletion`**
 
 ## 1. What we collect
 

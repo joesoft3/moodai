@@ -94,3 +94,12 @@ Policy inside the app.
   `mood-ai-android-symbols` CI artifact (upload to Play → Deobfuscation files).
 - bump `version` in `mobile/pubspec.yaml` (`0.2.1+3` style) per release tag.
 - web ↔ store cross-link: put the Play badge on the landing page + /privacy footer.
+
+---
+
+## 🗑 Account deletion (store-required)
+
+- **In-app:** drawer → **Delete account** → password → *Delete forever* (immediate, irreversible).
+- **Web:** Settings → **Danger zone** — same flow.
+- **Public guide URL for the Data safety form:** `https://<your-web-domain>/account-deletion`
+- Scope + mechanics: [`docs/ACCOUNT-DELETION.md`](ACCOUNT-DELETION.md). Backups/logs rotate out ≤ 30 days.

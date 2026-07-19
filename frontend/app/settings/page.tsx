@@ -269,6 +269,11 @@ export default function SettingsPage() {
   const [domMsg, setDomMsg] = useState("");
   const [connectForm, setConnectForm] = useState({ domain: "", brand: "" });
   const [domBusy, setDomBusy] = useState(false);
+  // ☠️ danger zone
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [delPw, setDelPw] = useState("");
+  const [delBusy, setDelBusy] = useState(false);
+  const [delMsg, setDelMsg] = useState("");
   const [buyQuery, setBuyQuery] = useState("");
   const [buyResults, setBuyResults] = useState<DomainResult[] | null>(null);
   const [buyPick, setBuyPick] = useState<DomainResult | null>(null);
@@ -729,6 +734,20 @@ export default function SettingsPage() {
   function logout() {
     token.clear();
     router.push("/login");
+  }
+
+  async function deleteAccount() {
+    if (delBusy || !delPw) return;
+    setDelBusy(true);
+    setDelMsg("");
+    try {
+      await apiFetch("/auth/me", { method: "DELETE", body: JSON.stringify({ password: delPw }) });
+      token.clear();
+      router.push("/login?deleted=1");
+    } catch (e: any) {
+      setDelMsg(e.message ?? "Deletion failed — account kept");
+      setDelBusy(false);
+    }
   }
 
   async function saveInstructions() {
@@ -1632,6 +1651,41 @@ export default function SettingsPage() {
                   )}
                 </div>
               )}
+            </Card>
+
+            {/* ☠️ Danger zone — app-store-required account deletion */}
+            <Card icon={<Trash2 size={16} className="text-red-400" />} title="Danger zone">
+              <div className="space-y-3">
+                <p className="text-xs text-gray-400">
+                  Permanently delete your Mood AI account — chats, uploads, designs, films, edits, orders, memory,
+                  plugin tokens, and teams you own. <span className="font-semibold text-red-300">This is instant and cannot be undone.</span>{" "}
+                  Details at <a href="/account-deletion" className="text-accent underline underline-offset-2">/account-deletion</a>.
+                </p>
+                {!confirmDel ? (
+                  <button onClick={() => setConfirmDel(true)}
+                    className="touch-manipulation rounded-xl border border-red-500/40 px-4 py-2 text-xs font-semibold text-red-400 hover:bg-red-500/10 transition">
+                    Delete my account…
+                  </button>
+                ) : (
+                  <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 space-y-2.5">
+                    <p className="text-xs text-red-300">Type your password to confirm permanent deletion:</p>
+                    <input type="password" value={delPw} onChange={(e) => setDelPw(e.target.value)}
+                      placeholder="Your password" autoComplete="current-password"
+                      className="w-full max-w-sm rounded-xl border border-line bg-base px-3 py-2 text-sm outline-none focus:border-red-500/60" />
+                    {delMsg && <p className="text-xs text-red-400">{delMsg}</p>}
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={deleteAccount} disabled={delBusy || !delPw}
+                        className="touch-manipulation rounded-xl bg-red-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-red-500 disabled:opacity-40 transition">
+                        {delBusy ? "Deleting…" : "🗑 Delete forever"}
+                      </button>
+                      <button onClick={() => { setConfirmDel(false); setDelPw(""); setDelMsg(""); }}
+                        className="touch-manipulation rounded-xl border border-line px-4 py-2.5 text-xs text-gray-300 hover:border-accent/50 transition">
+                        Keep my account
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </Card>
           </div>
         </div>

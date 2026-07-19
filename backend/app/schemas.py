@@ -17,6 +17,10 @@ class PreferencesUpdate(BaseModel):
     custom_instructions: str | None = Field(default=None, max_length=2000)
 
 
+class AccountDeleteRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=128)  # re-confirm to delete
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

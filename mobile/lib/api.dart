@@ -76,6 +76,23 @@ class Api {
     return jsonDecode(res.body);
   }
 
+  /// DELETE with a JSON body (account deletion etc.).
+  static Future<Map<String, dynamic>> deleteJson(String path, Map<String, dynamic> body) async {
+    final token = await getToken();
+    final req = http.Request('DELETE', Uri.parse('$baseUrl$path'));
+    req.headers.addAll(_headers(token));
+    req.body = jsonEncode(body);
+    final streamed = await _client.send(req).timeout(const Duration(seconds: 30));
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode >= 400) throw Exception(_error(res));
+    final decoded = res.body.isEmpty ? <String, dynamic>{} : jsonDecode(res.body);
+    return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+  }
+
+  /// 🗑 Permanently delete the signed-in account (password re-confirm).
+  static Future<Map<String, dynamic>> deleteMyAccount(String password) =>
+      deleteJson('/auth/me', {'password': password});
+
   static Future<void> delete(String path) async {
     final token = await getToken();
     final res = await _client

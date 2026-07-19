@@ -33,7 +33,7 @@ const SEC = [
   {
     t: "Retention & deletion",
     b: [
-      "Conversations, uploads and memory persist until you delete them or your account. Deletions purge embeddings promptly; account deletion clears remaining data within ~30 days (backups rotate afterwards). Aggregated, de-identified usage totals may persist. Plugin tokens are erased on disconnect.",
+      "Conversations, uploads and memory persist until you delete them or your account. Deletions purge embeddings promptly; account deletion is instant and self-service (Settings → Danger zone or the app drawer — see /account-deletion) and clears remaining data; backups rotate within ~30 days. Aggregated, de-identified usage totals may persist. Plugin tokens are erased on disconnect.",
     ],
   },
   {

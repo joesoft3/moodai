@@ -153,6 +153,7 @@ mood-ai/
 | POST/GET | `/api/v1/media/edits[/{id}]` | ✂️ Auto-Edit: upload clip + instruction → 202 + poll (trim/speed/reframe/grade/subs/music/stamp/**🎵 beat-sync**) |
 | POST | `/api/v1/media/designs/batch` · `/batch-csv` | 🔁 Batch studio: ≤10 photos → matching flyer set · CSV rows → card flyers (local render) |
 | GET/POST | `/api/v1/media/design-orders[/{id}/close]` | 🛍 Client mode: magic order links |
+| DELETE | `/api/v1/auth/me` | 🗑 permanent account deletion (password gate — Play/App Store) · public guide at `/account-deletion` |
 | GET/POST | `/api/v1/media/public/orders/{token}[/download]` | 🌐 public order page + delivered delivery download |
 
 ## Feature status
