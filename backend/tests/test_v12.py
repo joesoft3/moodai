@@ -196,3 +196,13 @@ def test_batch_render_photo_and_card(tmp_path, monkeypatch):
     assert out["width"] == 1024 and out["height"] == 1536
     card = asyncio.run(dzn.render_text_card("Waakye Friday", "from GH¢20", "Order", "#FFD54A", "sunset"))
     assert Path(tmp_path, card["file"]).exists()
+
+
+
+def test_sqlite_date_trunc_semantics():
+    from app.db.session import _sqlite_date_trunc as f
+    assert f("day", "2026-07-19 13:45:22") == "2026-07-19 00:00:00"
+    assert f("month", "2026-07-19 13:45:22").startswith("2026-07-01")
+    assert f("hour", "2026-07-19T13:45:22") == "2026-07-19 13:00:00"
+    assert f("week", "2026-07-19 13:45:22") == "2026-07-13 00:00:00"   # 19 Jul 2026 is a Sunday
+    assert f("year", "2026-07-19 13:45:22").startswith("2026-01-01")
