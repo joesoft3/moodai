@@ -55,7 +55,8 @@ class _FilmsScreenState extends State<FilmsScreen> {
     if (_busy) return;
     final r = await FilePicker.platform.pickFiles(type: FileType.image);
     final path = r?.files.single.path;
-    if (path == null || !mounted) return;
+    final name = r?.files.single.name;
+    if (path == null || name == null || !mounted) return;
     final ctrl = TextEditingController();
     final prompt = await showDialog<String>(
       context: context,
@@ -79,7 +80,7 @@ class _FilmsScreenState extends State<FilmsScreen> {
     setState(() => _busy = true);
     try {
       final bytes = await File(path).readAsBytes();
-      await Api.postMultipart('/media/videos/storyboard-i2v', bytes, r.files.single.name,
+      await Api.postMultipart('/media/videos/storyboard-i2v', bytes, name,
           fields: {'prompt': prompt});
       _refresh(quiet: true);
     } catch (e) {
