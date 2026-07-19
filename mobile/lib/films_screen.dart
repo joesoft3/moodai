@@ -5,7 +5,9 @@
 // - Tap → fullscreen player (video_player), share link to clipboard,
 //   delete / resume stuck renders — mirrors the web /films gallery.
 import 'dart:async';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
@@ -44,6 +46,48 @@ class _FilmsScreenState extends State<FilmsScreen> {
       });
     } catch (e) {
       if (mounted && !quiet) setState(() => _error = '$e');
+    }
+  }
+
+  bool _busy = false;
+
+  Future<void> _filmFromPhoto() async {
+    if (_busy) return;
+    final r = await FilePicker.platform.pickFiles(type: FileType.image);
+    final path = r?.files.single.path;
+    if (path == null || !mounted) return;
+    final ctrl = TextEditingController();
+    final prompt = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: MoodColors.panel,
+        title: const Text('🎬 Film from this photo'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 3,
+          autofocus: true,
+          decoration: const InputDecoration(
+              hintText: 'What should the film be about? e.g. a launch-day teaser for my waakye spot'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Render')),
+        ],
+      ),
+    );
+    if (prompt == null || prompt.length < 3) return;
+    setState(() => _busy = true);
+    try {
+      final bytes = await File(path).readAsBytes();
+      await Api.postMultipart('/media/videos/storyboard-i2v', bytes, r.files.single.name,
+          fields: {'prompt': prompt});
+      _refresh(quiet: true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -121,6 +165,12 @@ class _FilmsScreenState extends State<FilmsScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Film from a photo',
+            icon: const Icon(Icons.add_photo_alternate_outlined, size: 20),
+            onPressed: _filmFromPhoto,
+          ),
+          
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh, size: 20), tooltip: 'Refresh'),
         ],
       ),

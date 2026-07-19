@@ -146,6 +146,14 @@ mood-ai/
 | POST | `/api/v1/billing/checkout` / `/webhook` | Stripe subscriptions |
 | GET/PUT | `/api/v1/admin/overview` · `/settings` | 🛡 owner panel: stats · signup/app-password gate |
 | POST/DEL | `/api/v1/admin/users[...]` | owner: plans, password resets, admin flag, delete user |
+| GET/POST | `/api/v1/media/designs` | 🎨 Design Studio: AI flyers/logos/banners, web + 300-DPI print tiers |
+| GET | `/api/v1/media/designs/{id}/download` · `/export?preset=` | owner-gated PNG tiers · 🖨 A4/A5 bleed, WA status, IG presets |
+| GET/PUT | `/api/v1/media/brand` · `/media/brand/icon` | ⭐ Brand kit + generated app-icon tiles |
+| POST | `/api/v1/media/videos/i2v` · `/videos/storyboard-i2v` | 📷➡️🎬 photo → animated video · photo opens a storyboard film |
+| POST/GET | `/api/v1/media/edits[/{id}]` | ✂️ Auto-Edit: upload clip + instruction → 202 + poll (trim/speed/reframe/grade/subs/music/stamp/**🎵 beat-sync**) |
+| POST | `/api/v1/media/designs/batch` · `/batch-csv` | 🔁 Batch studio: ≤10 photos → matching flyer set · CSV rows → card flyers (local render) |
+| GET/POST | `/api/v1/media/design-orders[/{id}/close]` | 🛍 Client mode: magic order links |
+| GET/POST | `/api/v1/media/public/orders/{token}[/download]` | 🌐 public order page + delivered delivery download |
 
 ## Feature status
 

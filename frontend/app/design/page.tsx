@@ -84,6 +84,15 @@ export default function DesignPage() {
   const [savingBrand, setSavingBrand] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
+  // 🔁 batch studio
+  const [bHead, setBHead] = useState("");
+  const [bSub, setBSub] = useState("");
+  const [bCta, setBCta] = useState("");
+  const [bAccent, setBAccent] = useState("#FFD54A");
+  const [bFiles, setBFiles] = useState<File[]>([]);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvTheme, setCsvTheme] = useState("noir");
+  const [bBusy, setBBusy] = useState(false);
   const urlCache = useRef<Record<string, string>>({});
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 4500); };
@@ -160,6 +169,49 @@ export default function DesignPage() {
       flash(e instanceof Error ? e.message : "Design failed");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // ---------------------------------------------------- 🔁 batch studio
+  async function runBatchPhotos() {
+    if (bBusy || !bFiles.length || bHead.trim().length < 2) return;
+    setBBusy(true);
+    try {
+      const fd = new FormData();
+      bFiles.slice(0, 10).forEach((f) => fd.append("files", f, f.name));
+      fd.append("headline", bHead.trim());
+      if (bSub.trim()) fd.append("sub", bSub.trim());
+      if (bCta.trim()) fd.append("cta", bCta.trim());
+      fd.append("accent", bAccent);
+      const j = await apiFetch<{ designs: Design[]; skipped: string[]; trimmed: number; remaining_today: number }>(
+        "/media/designs/batch", { method: "POST", body: fd });
+      flash(`🔁 ${j.designs.length} flyers rendered${j.skipped.length ? ` · skipped ${j.skipped.join(", ")}` : ""}${j.trimmed ? ` · ${j.trimmed} over today's limit` : ""} — in your gallery below`);
+      setBFiles([]); setBHead(""); setBSub(""); setBCta("");
+      refresh();
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Batch failed");
+    } finally {
+      setBBusy(false);
+    }
+  }
+
+  async function runBatchCsv() {
+    if (bBusy || !csvFile) return;
+    setBBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", csvFile, csvFile.name);
+      fd.append("accent", bAccent);
+      fd.append("theme", csvTheme);
+      const j = await apiFetch<{ designs: Design[]; rows: number; remaining_today: number }>(
+        "/media/designs/batch-csv", { method: "POST", body: fd });
+      flash(`🔁 ${j.rows} card flyers rendered from ${csvFile.name} — check your gallery`);
+      setCsvFile(null);
+      refresh();
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "CSV batch failed");
+    } finally {
+      setBBusy(false);
     }
   }
 
@@ -459,6 +511,57 @@ export default function DesignPage() {
           </p>
         )}
         {toast && <div className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs text-accent">{toast}</div>}
+
+        {/* 🔁 batch studio */}
+        <section className="rounded-xl border border-line bg-white/5 p-4 space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-sm font-semibold text-gray-100">🔁 Batch studio</h2>
+            <span className="text-[11px] text-gray-500">one headline → up to 10 matching flyers · renders locally (no AI tokens), respects your daily design budget</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input value={bHead} onChange={(e) => setBHead(e.target.value)} maxLength={90}
+              placeholder="Headline — e.g. Grand Sale 50% Off"
+              className="rounded-xl border border-line bg-transparent px-3 py-2 text-sm outline-none focus:border-accent/60" />
+            <div className="flex gap-2">
+              <input value={bSub} onChange={(e) => setBSub(e.target.value)} maxLength={120}
+                placeholder="Sub-line (optional)"
+                className="min-w-0 flex-1 rounded-xl border border-line bg-transparent px-3 py-2 text-sm outline-none focus:border-accent/60" />
+              <input value={bCta} onChange={(e) => setBCta(e.target.value)} maxLength={40}
+                placeholder="CTA"
+                className="w-24 rounded-xl border border-line bg-transparent px-3 py-2 text-sm outline-none focus:border-accent/60" />
+              <label className="relative h-9 w-9 shrink-0 self-center overflow-hidden rounded-lg border border-line cursor-pointer" title="Accent color">
+                <span className="absolute inset-0" style={{ background: bAccent }} />
+                <input type="color" value={bAccent} onChange={(e) => setBAccent(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
+              </label>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="touch-manipulation cursor-pointer rounded-xl border border-dashed border-line px-4 py-2 text-xs text-gray-300 hover:border-accent/50 transition">
+              📷 {bFiles.length ? `${bFiles.length} photo${bFiles.length > 1 ? "s" : ""} picked` : "Pick up to 10 photos"}
+              <input type="file" accept="image/png,image/jpeg,image/webp" multiple className="hidden"
+                onChange={(e) => setBFiles(Array.from(e.target.files ?? []).slice(0, 10))} />
+            </label>
+            <button onClick={runBatchPhotos} disabled={bBusy || !bFiles.length || bHead.trim().length < 2}
+              className="touch-manipulation rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-[#0b0f14] disabled:opacity-40 hover:brightness-110 transition">
+              {bBusy ? <Loader2 size={14} className="animate-spin inline" /> : "🔁"} Render flyer set
+            </button>
+            <span className="text-gray-600 text-xs">·</span>
+            <label className="touch-manipulation cursor-pointer rounded-xl border border-dashed border-line px-4 py-2 text-xs text-gray-300 hover:border-accent/50 transition">
+              🧾 {csvFile ? csvFile.name : "CSV → flyers"}
+              <input type="file" accept=".csv,text/csv" className="hidden"
+                onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)} />
+            </label>
+            <select value={csvTheme} onChange={(e) => setCsvTheme(e.target.value)}
+              className="rounded-lg border border-line bg-[rgb(var(--mood-panel))] px-2 py-1.5 text-[11px] text-gray-300">
+              {["noir", "sunset", "ocean", "forest", "candy", "gold"].map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <button onClick={runBatchCsv} disabled={bBusy || !csvFile}
+              className="touch-manipulation rounded-xl border border-line px-4 py-2 text-xs text-gray-200 disabled:opacity-40 hover:border-accent/50 transition">
+              Render CSV
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-600">CSV headers: <code>headline,sub,cta,accent</code> (headline required; one card flyer per row).</p>
+        </section>
 
         {/* 🛍 client mode */}
         <section className="rounded-xl border border-line bg-white/5 p-4 space-y-3">

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import settings
+from . import beats as beatfx
 from .llm import llm
 from .soundtrack import bed_filter, ffmpeg_path
 
@@ -57,6 +58,8 @@ class EditPlan:
     music: str | None = None            # key into MUSIC_BEDS
     music_vol: float = 0.35             # bed loudness vs. original track
     stamp: bool = False                 # brand logo corner stamp
+    beats: bool = False                 # 🎵 auto pulse-cut to detected beats
+    beat_window: float = 0.4            # seconds kept around each beat
     notes: list[str] = field(default_factory=list)
 
 
@@ -64,12 +67,13 @@ EDIT_SYSTEM = """You are a professional video-editing planner.
 Turn the user's plain-English instruction into ONE JSON object (no prose, no fences):
 {"trim_start": 0, "trim_end": null, "speed": 1.0, "reframe": null,
  "subtitles": false, "grade": null, "mute": false, "music": null,
- "music_vol": 0.35, "stamp": false}
+ "music_vol": 0.35, "stamp": false, "beats": false, "beat_window": 0.4}
 Rules: trim_* are seconds (null = keep to end); speed 0.5–2.0; reframe ∈ {16:9, 9:16, 1:1, 4:5} or null;
 grade ∈ {warm, cool, vivid, mono} or null; music ∈ {soft, epic, lofi, tension} or null; booleans only.
 "vertical/tiktok/status" → reframe 9:16 · "square" → 1:1 · "faster" → speed 1.5 ·
 "black and white" → grade mono · "add music" → music soft unless a mood is named ·
-"my logo" / "watermark" → stamp true · "silent/no audio" → mute true.
+"my logo" / "watermark" → stamp true · "silent/no audio" → mute true ·
+"to the beat / tempo / sync to the music / dance cut" → beats true.
 If nothing is requested, return the neutral object above."""
 
 
@@ -103,6 +107,8 @@ def normalize_plan(raw: dict[str, Any]) -> EditPlan:
         p.music = m if m in MUSIC_BEDS else None
         p.music_vol = _bounded(raw.get("music_vol", 0.35), 0.05, 1.0, 0.35)
     p.stamp = bool(raw.get("stamp"))
+    p.beats = bool(raw.get("beats"))
+    p.beat_window = _bounded(raw.get("beat_window", 0.4), 0.15, 0.9, 0.4)
     return p
 
 
@@ -160,6 +166,8 @@ def fallback_plan(instruction: str) -> EditPlan:
         p.mute, p.music = True, None
     if re.search(r"logo|watermark|brand(ing)?", t):
         p.stamp = True
+    if re.search(r"\bbop|\bbeat|tempo|to the (beat|music)|in sync|dance", t):
+        p.beats = True
     m = re.search(r"(?:cut|trim|remove)\s+(?:the )?(?:first|intro)\D*(\d+)", t)
     if m:
         p.trim_start = _bounded(m.group(1), 0, 3600, 0)
@@ -249,6 +257,51 @@ def build_stamp_cmd(src: str, logo: str, dst: str, stamp_w: int = 140, pad: int 
 
 
 # ------------------------------------------------------------------ helpers
+def build_beat_cut_cmd(src: str, dst: str, beats: list[float], window: float = 0.4,
+                       has_audio: bool = True) -> list[str]:
+    """🎵 Pulse-cut: keep a short window around every beat, stitch them back together."""
+    w = max(0.15, min(0.9, float(window)))
+    segs: list[tuple[float, float]] = []
+    for b in beats[:96]:
+        start = max(0.0, float(b) - w / 2)
+        segs.append((start, start + w))
+    if not segs:
+        raise EditError("beat cut needs at least one beat")
+    parts: list[str] = []
+    labels: list[str] = []
+    for i, (a, b) in enumerate(segs):
+        parts.append(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}]")
+        if has_audio:
+            parts.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]")
+            labels.append(f"[v{i}][a{i}]")
+        else:
+            labels.append(f"[v{i}]")
+    parts.append("".join(labels) + f"concat=n={len(segs)}:v=1:a={1 if has_audio else 0}" +
+                 ("[vout][aout]" if has_audio else "[vout]"))
+    cmd = [ffmpeg_path() or "ffmpeg", "-y", "-i", src,
+           "-filter_complex", ";".join(parts), "-map", "[vout]"]
+    if has_audio:
+        cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "128k"]
+    else:
+        cmd += ["-an"]
+    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", dst]
+    return cmd
+
+
+def build_even_cut_cmd(src: str, dst: str, duration: float, window: float = 0.4,
+                       step: float = 1.6, has_audio: bool = True) -> list[str]:
+    """Fallback rhythm cut when the clip has no clear beat grid (silent clips)."""
+    w = max(0.15, min(0.9, float(window)))
+    centers: list[float] = []
+    t = step / 2
+    while t + w / 2 <= max(0.0, duration):
+        centers.append(round(t, 3))
+        t += step
+    if not centers and duration > 0:
+        centers = [max(w / 2, duration / 2)]
+    return build_beat_cut_cmd(src, dst, centers, w, has_audio)
+
+
 def _run(cmd: list[str], timeout: int = 600) -> None:
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     dst = cmd[-1]
@@ -321,6 +374,30 @@ async def run_edit(src_path: Path, plan: EditPlan, brand_logo_file: str = "") ->
     try:
         if plan.trim_start > 0 or plan.trim_end is not None:
             out = nxt(); _run(build_trim_cmd(str(cur), str(out), plan.trim_start, plan.trim_end)); cur = out
+        if plan.beats:
+            info: dict = {"beats": [], "count": 0, "bpm": None, "marks": []}
+            try:
+                info = beatfx.analyze(cur)
+            except Exception:
+                pass
+            has_a = has_audio_stream(cur)
+            if info.get("count", 0) >= 3:
+                out = nxt()
+                _run(build_beat_cut_cmd(str(cur), str(out), info["beats"], plan.beat_window, has_a))
+                cur = out
+                bpm_txt = f" @ ~{info['bpm']} BPM" if info.get("bpm") else ""
+                notes.append(f"🎵 {info['count']} beats{bpm_txt} → pulse-cut to the rhythm")
+                drops = [m for m in info.get("marks", []) if m.get("kind") == "drop"]
+                if drops:
+                    notes.append("energy drop moments (great caption spots): "
+                                 + ", ".join(f"{m['time']:.1f}s" for m in drops[:3]))
+            elif ffprobe_seconds(cur) >= 3:
+                out = nxt()
+                _run(build_even_cut_cmd(str(cur), str(out), ffprobe_seconds(cur), plan.beat_window, has_a))
+                cur = out
+                notes.append("no clear beat grid — used even rhythm cuts instead")
+            else:
+                notes.append("beat cut skipped — clip too short")
         if abs(plan.speed - 1.0) > 0.01:
             out = nxt()
             if has_audio_stream(cur):

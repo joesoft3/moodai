@@ -9,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import 'design_screen.dart';
+import 'edit_screen.dart';
+import 'orders_screen.dart';
 import 'films_screen.dart';
 
 import 'api.dart';
@@ -715,6 +717,24 @@ class _ChatScreenState extends State<ChatScreen> {
                 onTap: () {
                   Navigator.of(context).pop();
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DesignScreen()));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.content_cut, size: 18),
+                title: const Text('✂️ Auto-Edit', style: TextStyle(fontSize: 14)),
+                subtitle: const Text('Upload a clip · edit by instruction', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const EditScreen()));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.request_page_outlined, size: 18),
+                title: const Text('🛍 Client Orders', style: TextStyle(fontSize: 14)),
+                subtitle: const Text('Magic links clients order from', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const OrdersScreen()));
                 },
               ),
               ListTile(

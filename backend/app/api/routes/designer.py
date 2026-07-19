@@ -10,7 +10,8 @@ import secrets
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query,
+                    Request, UploadFile, status)
 from fastapi.responses import FileResponse
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -394,3 +395,97 @@ async def delete_design(design_id: str, db: AsyncSession = Depends(get_db), user
             pass
     await db.execute(delete(Design).where(Design.id == design_id))
     await db.commit()
+
+
+# ------------------------------------------------------------ 🔁 batch studio
+async def _batch_budget(db, user) -> int:
+    """Remaining design slots today for this plan (raises when exhausted)."""
+    await enforce_rate_limit(f"design:{user.id}", 8)
+    cap = PLAN_LIMITS.get(user.plan, PLAN_LIMITS["free"])["design_day"]
+    used = await count_today(db, user.id, "design")
+    remaining = (cap - used) if cap else dzn.BATCH_MAX
+    if cap and remaining <= 0:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Daily design limit reached for the {user.plan} plan ({cap}/day). Upgrade for more.",
+        )
+    return remaining
+
+
+def _batch_row(user_id: str, headline: str, out: dict, source: str) -> Design:
+    return Design(
+        id=out["id"], user_id=user_id, kind="flyer",
+        idea=headline[:200], brief=f"🔁 batch {source} — {headline[:160]}",
+        prompt=f"batch:{source}", style="batch", palette="auto",
+        width=out["width"], height=out["height"],
+        file=out["file"], print_file=out["print_file"],
+    )
+
+
+@router.post("/designs/batch", status_code=status.HTTP_201_CREATED)
+async def batch_photo_flyers(
+    files: list[UploadFile] = File(...),
+    headline: str = Form(min_length=2, max_length=90),
+    sub: str = Form(default="", max_length=120),
+    cta: str = Form(default="", max_length=40),
+    accent: str = Form(default="#FFD54A"),
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """🔁 One headline + up to 10 photos → a matching flyer set (local render, no tokens)."""
+    remaining = await _batch_budget(db, user)
+    picked = files[: min(dzn.BATCH_MAX, remaining)]
+    made, skipped = [], []
+    for f in picked:
+        mime = (f.content_type or "").lower()
+        raw = await f.read()
+        if mime not in dzn.BATCH_IMG_MIMES or not raw or len(raw) > dzn.BATCH_IMG_MAX_BYTES:
+            skipped.append(f.filename or "?")
+            continue
+        try:
+            out = await dzn.render_photo_flyer(raw, headline.strip(), sub.strip(), cta.strip(), accent)
+        except dzn.DesignError as e:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
+        d = _batch_row(user.id, headline.strip(), out, "photo")
+        db.add(d)
+        await db.commit()
+        await record_usage(user.id, "design", "batch-photo")
+        made.append(_row(d))
+    if not made:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                            "No usable images — send PNG/JPEG/WebP ≤ 8 MB each.")
+    return {"designs": made, "skipped": skipped,
+            "trimmed": max(0, len(files) - len(picked)), "remaining_today": remaining - len(made)}
+
+
+@router.post("/designs/batch-csv", status_code=status.HTTP_201_CREATED)
+async def batch_csv_flyers(
+    file: UploadFile = File(...),
+    accent: str = Form(default="#FFD54A"),
+    theme: str = Form(default="noir"),
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """🔁 CSV (headline,sub,cta[,accent]) → one typographic card flyer per row."""
+    remaining = await _batch_budget(db, user)
+    raw = await file.read()
+    if not raw or len(raw) > dzn.BATCH_CSV_MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            f"CSV must be ≤ {dzn.BATCH_CSV_MAX_BYTES // 1024} KB")
+    try:
+        rows = dzn.parse_flyer_csv(raw, limit=min(dzn.BATCH_MAX, remaining))
+    except dzn.DesignError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    made = []
+    for row in rows:
+        try:
+            out = await dzn.render_text_card(
+                row["headline"], row["sub"], row["cta"],
+                row["accent"] or accent, theme if theme in dzn.THEME_BGS else "noir",
+            )
+        except dzn.DesignError as e:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
+        d = _batch_row(user.id, row["headline"], out, "csv")
+        db.add(d)
+        await db.commit()
+        await record_usage(user.id, "design", "batch-csv")
+        made.append(_row(d))
+    return {"designs": made, "rows": len(rows), "remaining_today": remaining - len(made)}

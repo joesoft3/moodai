@@ -17,6 +17,8 @@ without the ffmpeg binary (same pattern as services/soundtrack.py).
 from __future__ import annotations
 
 import base64
+import csv
+import io
 import re
 import shutil
 import subprocess
@@ -518,3 +520,242 @@ async def generate_design(
         "native": bool(kw),
         "branded": branded,
     }
+
+
+# ------------------------------------------------------------ 🔁 batch studio
+# Photo flyers & CSV cards render 100% locally (photo/card bg + ffmpeg
+# typography) — no image-model call, so batches stay fast and free-tier safe.
+
+BATCH_MAX = 10
+BATCH_IMG_MAX_BYTES = 8 * 1024 * 1024
+BATCH_IMG_MIMES = {"image/png", "image/jpeg", "image/webp"}
+BATCH_CSV_MAX_BYTES = 256 * 1024
+
+THEME_BGS: dict[str, tuple[str, str]] = {   # (top color, bottom color) — soft two-tone
+    "noir":   ("0x12151C", "0x2A3140"),
+    "sunset": ("0x3B1D52", "0xC2543F"),
+    "ocean":  ("0x0E2A47", "0x1C6E8C"),
+    "forest": ("0x14321F", "0x3E6B3A"),
+    "candy":  ("0x4A2B5A", "0xD97BB5"),
+    "gold":   ("0x1B150C", "0x6B5316"),
+}
+
+
+def valid_accent(accent: str) -> str:
+    """Normalize '#FFD54A' / 'ffd54a' → '0xFFD54A' for ffmpeg, else default gold."""
+    a = (accent or "").strip().lstrip("#")
+    if re.fullmatch(r"[0-9a-fA-F]{6}", a):
+        return "0x" + a.upper()
+    return "0xFFD54A"
+
+
+def _dt_text(s: str, max_chars: int = 160) -> str:
+    """Escape user text for a drawtext filtergraph (arg-string context)."""
+    t = (s or "").strip().replace("\n", " ")[:max_chars]
+    t = t.replace("\\", "\\\\").replace(":", "\\:").replace(",", "\\,")
+    t = t.replace("'", "\u2019")
+    return t   # '%' is literal — every drawtext below sets expansion=none
+
+
+def _wrap(text: str, width: int = 17, max_lines: int = 2) -> list[str]:
+    words = (text or "").split()
+    lines: list[str] = []
+    cur = ""
+    for wd in words:
+        trial = (cur + " " + wd).strip()
+        if len(trial) <= width:
+            cur = trial
+        else:
+            if cur:
+                lines.append(cur)
+            cur = wd
+        if len(lines) == max_lines:
+            break
+    if cur and len(lines) < max_lines:
+        lines.append(cur)
+    if len(lines) == max_lines and words and (len(" ".join(lines)) < len(" ".join(words))):
+        lines[-1] = (lines[-1][: max(3, width - 1)] + "…")
+    return lines
+
+
+def _line_filters(lines: list[str], font: str, size: int, y0: int, step: int,
+                  color: str = "white") -> list[str]:
+    """One drawtext filter per wrapped line, centered — newline-safe."""
+    out = []
+    for i, ln in enumerate(lines):
+        out.append(
+            f"drawtext=fontfile='{font}':text='{ln}':fontsize={size}:fontcolor={color}:expansion=none"
+            f":shadowcolor=black@0.55:shadowx=2:shadowy=2"
+            f":x=(w-text_w)/2:y={y0 + i * step}"
+        )
+    return out
+
+
+def _cta_pill(cta: str, font: str, w: int, h: int, accent: str,
+              y_frac: float = 0.84) -> list[str]:
+    if not cta:
+        return []
+    size = round(h / 30)
+    # drawbox knows iw/ih; drawtext's input-dimension constants are w/h only.
+    return [
+        f"drawbox=x=(iw-iw*0.62)/2:y=ih*{y_frac}:w=iw*0.62:h=ih*0.075:color={accent}@0.94:t=fill",
+        f"drawtext=fontfile='{font}':text='{cta}':fontsize={size}:fontcolor=black:expansion=none"
+        f":x=(w-text_w)/2:y=h*{y_frac}+(h*0.075-th)/2",
+    ]
+
+
+def fit_font(lines: list[str], size: int, target_w: float, factor: float = 0.64) -> int:
+    """Shrink a font size until the longest line fits target_w (DejaVu-Bold ≈ 0.64 em)."""
+    longest = max((len(ln) for ln in lines), default=0)
+    if not longest:
+        return size
+    if size > 0 and factor * size * longest <= target_w:
+        return size
+    return max(round(size * 0.42), int(target_w / (factor * longest))) if longest else size
+
+
+def flyer_layout(h: int, n_head: int, n_sub: int, has_cta: bool,
+                 head_size: int | None = None, sub_size: int | None = None,
+                 pill_y: float = 0.84, top_frac: float = 0.40,
+                 pad_frac: float = 0.05) -> dict[str, int]:
+    """Bottom-up vertical plan for headline/sub/CTA (pure, unit-testable).
+
+    Text sits above the CTA pill; headline shrinks (never below h/26) before
+    anything is allowed to collide."""
+    bottom = round(h * (pill_y - 0.035)) if has_cta else round(h * 0.90)
+    gap = round(h * 0.045) if (n_head and n_sub) else 0
+    pad = round(h * pad_frac)
+    sub_size = sub_size or round(h / 30)
+    sub_block = n_sub * round(sub_size * 1.3)
+    top_min = round(h * top_frac)
+    head_size = head_size or round(h / 13)
+    head_block = n_head * round(head_size * 1.28)
+    room = bottom - top_min - pad - gap - sub_block
+    if n_head and head_block > room:
+        head_size = max(round(h / 26), int(room / n_head / 1.28))
+        head_block = n_head * round(head_size * 1.28)
+    head_y = max(top_min, bottom - pad - gap - sub_block - head_block) if n_head else bottom
+    sub_y = head_y + (head_block if n_head else 0) + gap
+    return {"head_size": head_size, "head_y": head_y, "head_step": round(head_size * 1.28),
+            "sub_size": sub_size, "sub_y": sub_y, "sub_step": round(sub_size * 1.3),
+            "shade_top": max(0, head_y - round(h * 0.04))}
+
+
+def build_photo_flyer_cmd(photo: str, dst: str, w: int, h: int, headline: str,
+                          sub: str = "", cta: str = "", accent: str = "#FFD54A") -> list[str]:
+    """Cover-crop the photo + typography overlay → web-tier flyer PNG."""
+    acc = valid_accent(accent)
+    font = brand_font()
+    filters = [f"scale={w}:{h}:force_original_aspect_ratio=increase",
+               f"crop={w}:{h}", "format=rgb24"]
+    head_lines = [_dt_text(ln) for ln in _wrap(headline, 18, 2)] if headline else []
+    sub_lines = [_dt_text(ln) for ln in _wrap(sub, 30, 2)] if sub else []
+    cta_t = _dt_text(cta, 30)
+    if drawtext_available() and font and (head_lines or sub_lines or cta_t):
+        L = flyer_layout(h, len(head_lines), len(sub_lines), bool(cta_t),
+                         head_size=fit_font(head_lines, round(h / 13), w * 0.90),
+                         sub_size=fit_font(sub_lines, round(h / 30), w * 0.90),
+                         pill_y=0.84, top_frac=0.40, pad_frac=0.02)
+        filters.append(f"drawbox=x=0:y={L['shade_top']}:w=iw:h=ih-{L['shade_top']}:color=black@0.52:t=fill")
+        filters += _line_filters(head_lines, font, L["head_size"], L["head_y"], L["head_step"])
+        filters += _line_filters(sub_lines, font, L["sub_size"], L["sub_y"], L["sub_step"], "white@0.92")
+        filters += _cta_pill(cta_t, font, w, h, acc)
+    return [ffmpeg_path() or "ffmpeg", "-y", "-i", photo,
+            "-vf", ",".join(filters), "-frames:v", "1", dst]
+
+
+def build_text_card_cmd(dst: str, w: int, h: int, headline: str, sub: str = "",
+                        cta: str = "", accent: str = "#FFD54A", theme: str = "noir") -> list[str]:
+    """Soft two-tone card + centered typography (lavfi only — no input image)."""
+    acc = valid_accent(accent)
+    bg1, bg2 = THEME_BGS.get(theme, THEME_BGS["noir"])
+    font = brand_font()
+    filters = [f"drawbox=x=0:y=ih/2:w=iw:h=ih/2:color={bg2}:t=fill",
+               f"gblur=sigma={round(min(w, h) / 6)}"]
+    head_lines = [_dt_text(ln) for ln in _wrap(headline, 16, 3)] if headline else []
+    sub_lines = [_dt_text(ln) for ln in _wrap(sub, 32, 2)] if sub else []
+    cta_t = _dt_text(cta, 30)
+    if drawtext_available() and font and (head_lines or sub_lines):
+        L = flyer_layout(h, len(head_lines), len(sub_lines), bool(cta_t),
+                         head_size=fit_font(head_lines, round(h / 13), w * 0.92),
+                         sub_size=fit_font(sub_lines, round(h / 30), w * 0.92),
+                         pill_y=0.78, top_frac=0.12, pad_frac=0.05)
+        filters += _line_filters(head_lines, font, L["head_size"], L["head_y"], L["head_step"])
+        filters += _line_filters(sub_lines, font, L["sub_size"], L["sub_y"], L["sub_step"], "white@0.92")
+        filters += _cta_pill(cta_t, font, w, h, acc, y_frac=0.78)
+    return [ffmpeg_path() or "ffmpeg", "-y", "-f", "lavfi",
+            "-i", f"color=c={bg1}:s={w}x{h}:d=1",
+            "-vf", ",".join(filters), "-frames:v", "1", dst]
+
+
+async def render_photo_flyer(photo: bytes, headline: str, sub: str, cta: str,
+                             accent: str) -> dict[str, Any]:
+    """One uploaded photo → (web + print tier) flyer files in MEDIA_DIR."""
+    if not ffmpeg_path():
+        raise DesignError("ffmpeg is required on this host for batch flyers")
+    kp = KIND_PRESETS["flyer"]
+    uid = uuid.uuid4().hex
+    media = Path(settings.MEDIA_DIR)
+    media.mkdir(parents=True, exist_ok=True)
+    tmp = media / f"{uid}_batchsrc"
+    web = media / f"{uid}_d.png"
+    prt = media / f"{uid}_dp.png"
+    try:
+        tmp.write_bytes(photo)
+        _run(build_photo_flyer_cmd(str(tmp), str(web), kp.web_w, kp.web_h, headline, sub, cta, accent))
+        _run(build_upscale_cmd(str(web), str(prt), kp.print_w, kp.print_h))
+    finally:
+        tmp.unlink(missing_ok=True)
+    return {"id": uid, "file": web.name, "print_file": prt.name, "width": kp.web_w, "height": kp.web_h}
+
+
+async def render_text_card(headline: str, sub: str, cta: str, accent: str,
+                           theme: str) -> dict[str, Any]:
+    """One CSV row → typographic card (web + print tier) in MEDIA_DIR."""
+    if not ffmpeg_path():
+        raise DesignError("ffmpeg is required on this host for batch cards")
+    kp = KIND_PRESETS["flyer"]
+    uid = uuid.uuid4().hex
+    media = Path(settings.MEDIA_DIR)
+    media.mkdir(parents=True, exist_ok=True)
+    web = media / f"{uid}_d.png"
+    prt = media / f"{uid}_dp.png"
+    _run(build_text_card_cmd(str(web), kp.web_w, kp.web_h, headline, sub, cta, accent, theme))
+    _run(build_upscale_cmd(str(web), str(prt), kp.print_w, kp.print_h))
+    return {"id": uid, "file": web.name, "print_file": prt.name, "width": kp.web_w, "height": kp.web_h}
+
+
+def parse_flyer_csv(raw: bytes, limit: int = BATCH_MAX) -> list[dict[str, str]]:
+    """CSV rows → [{headline, sub, cta, accent}] — tolerant of header variants."""
+    if len(raw) > BATCH_CSV_MAX_BYTES:
+        raise DesignError(f"CSV too large (≤ {BATCH_CSV_MAX_BYTES // 1024} KB)")
+    text = raw.decode("utf-8-sig", errors="replace")
+    rdr = csv.DictReader(io.StringIO(text))
+    if not rdr.fieldnames:
+        raise DesignError("CSV needs a header row (headline,sub,cta)")
+    norm = {(k or "").strip().lower(): k for k in rdr.fieldnames}
+
+    def first(d: dict, *names: str) -> str:
+        for n in names:
+            if n in norm:
+                v = (d.get(norm[n]) or "").strip()
+                if v:
+                    return v
+        return ""
+
+    rows: list[dict[str, str]] = []
+    for d in rdr:
+        head = first(d, "headline", "title", "text", "name")[:90]
+        if not head:
+            continue
+        rows.append({
+            "headline": head,
+            "sub": first(d, "sub", "subtitle", "line", "offer")[:120],
+            "cta": first(d, "cta", "call", "button", "contact")[:40],
+            "accent": first(d, "accent", "color", "colour"),
+        })
+        if len(rows) >= limit:
+            break
+    if not rows:
+        raise DesignError("No usable rows — need at least a 'headline' column.")
+    return rows
