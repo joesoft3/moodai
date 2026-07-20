@@ -3,16 +3,16 @@
 #
 # One-time setup (~3 min, see docs/DEPLOY-VERCEL.md):
 #   1. Vercel → Add New Project → import joesoft3/moodai → Root Directory: backend
-#      → copy Project ID (Settings → General) and Org ID (account Settings → General).
+#      → copy Project ID (Settings → General) and your account ID
+#      (vercel.com/account → General → "Your ID").
 #   2. Vercel account → Settings → Tokens → create token.
 #   3. GitHub repo → Settings → Secrets and variables → Actions:
 #        Secrets:    VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
 #        Variables:  VERCEL_CONNECTED = true
 #
-# From then on:  git push → this workflow deploys /backend to production.
-# (If the Vercel project's own Git integration is enabled, it also deploys on
-# push — this workflow is the explicit, auditable path. Pick one, not both,
-# or set the project's `git.deploymentEnabled` to false for main.)
+# From then on:  git push → this workflow hands the source to Vercel, which
+# builds SERVER-SIDE with the correct Python runtime (no CI/serverless wheel
+# mismatch) and rolls out production.
 # ─────────────────────────────────────────────────────────────────────────────
 name: deploy-vercel
 
@@ -30,8 +30,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Skip cleanly until Vercel is connected (one-time UI import + secrets —
-    # see docs/DEPLOY-VERCEL.md). No red board while undeployed.
+    # Skip cleanly until Vercel is connected (see docs/DEPLOY-VERCEL.md). No red
+    # board while undeployed.
     if: ${{ vars.VERCEL_CONNECTED == 'true' }}
     steps:
       - uses: actions/checkout@v4
@@ -40,33 +40,15 @@ jobs:
         with:
           node-version: 20
 
-      - name: Pull Vercel project settings
+      - name: Deploy to Vercel (server-side build, production)
         working-directory: backend
         env:
+          # Headless deploy: these two IDs skip interactive project linking.
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          npx --yes vercel@latest pull --yes --environment=production \
-            --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
-
-      - name: Build (CI pre-build keeps deploys fast + deterministic)
-        working-directory: backend
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: npx --yes vercel@latest build --prod --token "$VERCEL_TOKEN"
-
-      - name: Deploy prebuilt output (prod)
-        working-directory: backend
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          # vercel deploy prints the production URL as the last stdout line
-          URL=$(npx --yes vercel@latest deploy --prebuilt --prod --archive=tgz \
+          URL=$(npx --yes vercel@latest deploy --prod --yes \
             --token "$VERCEL_TOKEN" | tail -1)
           echo "### 🚀 Vercel deploy live" >> "$GITHUB_STEP_SUMMARY"
           echo "$URL" >> "$GITHUB_STEP_SUMMARY"
