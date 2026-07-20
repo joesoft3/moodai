@@ -41,14 +41,16 @@ jobs:
           node-version: 20
 
       - name: Deploy to Vercel (server-side build, production)
-        working-directory: backend
+        # Run from the REPO ROOT: the linked project's rootDirectory=backend
+        # is resolved relative to CWD, so running inside backend/ breaks it.
         env:
           # Headless deploy: these two IDs skip interactive project linking.
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
+          set -o pipefail  # never let tail hide a failed deploy
           URL=$(npx --yes vercel@latest deploy --prod --yes \
-            --token "$VERCEL_TOKEN" | tail -1)
+            --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/vercel-deploy.log | tail -1)
           echo "### 🚀 Vercel deploy live" >> "$GITHUB_STEP_SUMMARY"
           echo "$URL" >> "$GITHUB_STEP_SUMMARY"
