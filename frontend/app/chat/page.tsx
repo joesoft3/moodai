@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Link2Off, Share2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { streamChat } from "@/lib/stream";
 import { LAST_CONV_KEY, useConversations } from "@/lib/conversations";
 import AppShell from "@/components/AppShell";
@@ -454,12 +455,15 @@ export default function ChatPage() {
       const r = await apiFetch<{ token: string; path: string }>(`/conversations/${activeId}/share`, {
         method: "POST",
       });
-      await navigator.clipboard.writeText(`${window.location.origin}${r.path}`);
+      const url = `${window.location.origin}${r.path}`;
+      (await copyText(url))
+        ? setShareMsg("Link copied ✓")
+        : setShareMsg(`Link ready — long-press to copy: ${url}`);
       setShared(true);
-      setShareMsg("Link copied ✓");
       setTimeout(() => setShareMsg(""), 2500);
     } catch (e: any) {
-      alert(e.message ?? "Share failed");
+      setShareMsg("⚠️ " + (e.message ?? "Share failed"));
+      setTimeout(() => setShareMsg(""), 2500);
     }
   }
 

@@ -91,16 +91,24 @@ async function* streamSSE(
   timeoutMs = 6 * 60_000,
 ): AsyncGenerator<ChatEvent> {
   const tk = token.get();
-  const res = await fetch(`${API}${endpoint}`, {
+  let res: Response;
+  try {
+    res = await fetch(`${API}${endpoint}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(tk ? { Authorization: `Bearer ${tk}` } : {}),
       ...(typeof window !== "undefined" ? { "X-Mood-Host": window.location.host } : {}),
     },
-    body: JSON.stringify(payload),
-    signal: signal ?? AbortSignal.timeout(timeoutMs),
-  });
+      body: JSON.stringify(payload),
+      signal: signal ?? AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    if (e instanceof TypeError) {
+      throw new Error("Can't reach the Mood AI server — it may be starting up or your connection dropped. Try again in a few seconds.");
+    }
+    throw e;
+  }
   if (!res.ok || !res.body) throw new Error(await sseErrorMessage(res));
 
   const reader = res.body.getReader();

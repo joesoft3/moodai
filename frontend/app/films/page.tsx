@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Clapperboard, Clapperboard as FilmIcon, Copy, Loader2, Megaphone, PencilLine, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 
 interface Film {
   id: string;
@@ -127,13 +128,12 @@ export default function FilmsPage() {
   }
 
   async function copyLink(url: string) {
-    try {
-      await navigator.clipboard.writeText(url);
+    if (await copyText(url)) {
       setMsg("🔗 Film link copied (public, works for ~24h).");
-      setTimeout(() => setMsg(""), 3000);
-    } catch {
+    } else {
       setMsg("⚠️ Clipboard blocked — long-press the video to share instead.");
     }
+    setTimeout(() => setMsg(""), 3000);
   }
 
   const rendering = (films ?? []).filter((f) => f.status === "rendering");

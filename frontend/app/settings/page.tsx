@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Activity, Brain, Copy, CreditCard, Globe, LogOut, Puzzle, RefreshCw, SearchCheck, SlidersHorizontal, Trash2, User, Users, X } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch, token } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 
 interface Me {
   id: string;
@@ -147,18 +148,19 @@ function money(cents: number, currency: string) {
 }
 
 function CopyBtn({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
+  const [state, setState] = useState<"" | "ok" | "fail">("");
   return (
     <button
       onClick={async () => {
-        await navigator.clipboard.writeText(text);
-        setDone(true);
-        setTimeout(() => setDone(false), 1200);
+        setState((await copyText(text)) ? "ok" : "fail");
+        setTimeout(() => setState(""), 1200);
       }}
       className="text-gray-500 hover:text-gray-200 transition shrink-0"
-      title="Copy"
+      title={state === "fail" ? "Copy blocked by browser" : "Copy"}
     >
-      {done ? <span className="text-[10px] text-green-400">✓</span> : <Copy size={12} />}
+      {state === "ok" ? <span className="text-[10px] text-green-400">✓</span>
+        : state === "fail" ? <span className="text-[10px] text-red-400">✗</span>
+        : <Copy size={12} />}
     </button>
   );
 }

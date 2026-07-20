@@ -27,6 +27,18 @@ function pageHost(): string | null {
   return typeof window === "undefined" ? null : window.location.host;
 }
 
+/** Raw browser fetch errors ("Failed to fetch") read unprofessionally — translate. */
+async function guardedFetch(input: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (e) {
+    if (e instanceof TypeError) {
+      throw new Error("Can't reach the Mood AI server — it may be starting up or your connection dropped. Try again in a few seconds.");
+    }
+    throw e;
+  }
+}
+
 export async function apiFetch<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { ...((opts.headers as Record<string, string>) || {}) };
   if (!(opts.body instanceof FormData) && !headers["Content-Type"]) {
@@ -36,7 +48,7 @@ export async function apiFetch<T = any>(path: string, opts: RequestInit = {}): P
   if (tk) headers["Authorization"] = `Bearer ${tk}`;
   const ph = pageHost();
   if (ph) headers["X-Mood-Host"] = ph;
-  const res = await fetch(`${API}${path}`, { ...opts, headers });
+  const res = await guardedFetch(`${API}${path}`, { ...opts, headers });
   if (!res.ok) throw new Error(await errorMessage(res));
   const ct = res.headers.get("content-type") || "";
   return (ct.includes("application/json") ? res.json() : (res.blob() as any)) as Promise<T>;

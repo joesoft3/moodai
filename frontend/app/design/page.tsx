@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 
 /* ---------------------------------------------------------------- types */
 interface Design {
@@ -248,8 +249,9 @@ export default function DesignPage() {
         method: "POST", body: JSON.stringify({}),
       });
       const url = `${window.location.origin}${j.path}`;
-      await navigator.clipboard.writeText(url);
-      flash(`🔗 Client order link copied — ${url}`);
+      (await copyText(url))
+        ? flash(`🔗 Client order link copied — ${url}`)
+        : flash(`🔗 Client order link (long-press to copy): ${url}`);
       const list = await apiFetch<{ orders: typeof orders }>("/media/design-orders");
       setOrders(list.orders);
     } catch (e) {
@@ -259,8 +261,9 @@ export default function DesignPage() {
 
   async function copyOrder(path: string) {
     const url = `${window.location.origin}${path}`;
-    await navigator.clipboard.writeText(url);
-    flash("🔗 Order link copied to clipboard");
+    (await copyText(url))
+      ? flash("🔗 Order link copied to clipboard")
+      : flash(`🔗 Order link (long-press to copy): ${url}`);
   }
 
   async function closeOrder(id: string) {
