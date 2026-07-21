@@ -1,17 +1,18 @@
 # 🪰 Deploy the Mood AI backend on Fly.io
 
-> ### 🚦 LIVE STATUS (2026-07-21 — agent-verified)
-> | Piece | State |
+> ### 🚦 LIVE STATUS (2026-07-21) — **RUNNING IN PRODUCTION** ✅
+> | Piece | State (all agent-verified live) |
 > |---|---|
-> | Deploy token | ✅ pasted by user, validated (`fly auth whoami` OK), sealed as GitHub secret `FLY_API_TOKEN` |
-> | Org / region | ✅ `personal` (joesoft2024@gmail.com), app will live in **jnb** (Johannesburg, nearest 🇬🇭) |
-> | `fly.toml` + `Dockerfile.fly` | ✅ root-context build fixed (`1febc36`) — remote build verified structurally |
-> | **The one remaining click** | ⏳ **Fly needs a card on file before ANY app can be created:** [fly.io/dashboard/joesoft2024-gmail-com/billing](https://fly.io/dashboard/joesoft2024-gmail-com/billing) (usage-based — always-on tier ≈ $5–6/mo) |
-> | After that | Agent flips `FLY_CONNECTED=true` → CI creates app, volume, secrets & deploys automatically; nothing else to click |
->
-> **Alternative if you'd rather stay free/zero-card for now:** the Vercel API
-> stays live; add a free **Neon** Postgres (3 clicks, no card — see [DATABASE-OPTIONS.md](DATABASE-OPTIONS.md))
-> and the whole stack goes green there. Fly can be flipped on later with zero code changes.
+> | App | ✅ `moodai-api` @ **https://moodai-api.fly.dev** — region **jnb** (Johannesburg 🇬🇭), always-on 1×shared-cpu/1GB |
+> | Billing gate | ✅ user's card added → app created headlessly via the sealed deploy token |
+> | Database | ✅ dedicated Neon role+DB `moodai` (pooled URI) — **zero sharing with the Vercel API**; 19/19 migrations applied before first boot |
+> | `/healthz` | ✅ `200 {"status":"ok"}` · OpenAPI v1.8.0 |
+> | Owner bootstrap | ✅ `admin@moodaiapp.com` login → `is_admin: true` |
+> | Chat | ✅ live SSE: conversation persisted on the Fly-DB + model reply streamed ("FLY LIVE OK") |
+> | Web app wiring | ✅ `NEXT_PUBLIC_API_URL=https://moodai-api.fly.dev` (verified inside the served JS bundles) |
+> | CI auto-deploy | ✅ `FLY_CONNECTED=true` — `deploy-fly` workflow deploys every backend push |
+> | Volume note | ⚠️ jnb zone was saturated for volume-attached machines at deploy time → shipped **volumeless** (ephemeral uploads until R2); orphaned volume deleted. R2 is the designed durable store |
+> | Vercel API | ↩️ kept running as warm secondary (no cost, still healthy) |
 
 The FastAPI backend runs on Fly.io as a **Docker machine** — full ffmpeg,
 voice WebSockets, no request-time limit, no cold-start surprises. The repo

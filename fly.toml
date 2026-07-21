@@ -7,12 +7,12 @@ primary_region = "jnb"          # Johannesburg — closest to 🇬🇭 Accra
   dockerfile = "Dockerfile.fly"
 
 [env]
-  UPLOAD_DIR = "/data/storage"  # persistent volume below (uploads before R2 is wired)
+  # uploads/media on the machine's ephemeral disk UNTIL R2 is wired (docs/R2-STORAGE.md).
+  # (A moodai_data volume was created but dropped: jnb zones were capacity-saturated at
+  #  deploy time; R2 is the designed durable store, so we skip volume babysitting.)
+  UPLOAD_DIR = "/data/storage"
   MEDIA_DIR = "/data/media"
 
-[[mounts]]
-  source = "moodai_data"
-  destination = "/data"
 
 [http_service]
   internal_port = 8000
