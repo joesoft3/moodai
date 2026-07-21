@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, Link2Off, Share2 } from "lucide-react";
+import { AudioLines, Brush, Clapperboard, Download, Image as ImageIcon, Link2Off, Share2, Telescope } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { streamChat } from "@/lib/stream";
@@ -19,17 +19,15 @@ const THINKABLE = ["grok-4", "auto", "grok-code-fast-1"];
 
 function EmptyState() {
   return (
-    <div className="text-center text-gray-500 mt-10 sm:mt-16 md:mt-24 space-y-3 px-4">
-      <div className="text-5xl hide-xxs">✦</div>
-      <h2 className="text-lg sm:text-xl text-gray-300 font-semibold">How can I help today?</h2>
-      <p className="text-sm max-w-md mx-auto">
-        Ask anything — I can search the web live, read your files, analyze images, talk with you, and remember what
-        matters — even across chats.
-      </p>
-      <p className="text-[11px] text-gray-600 pt-1">
-        ⌘K new chat · <kbd className="border border-line rounded px-1">/</kbd> focus input · Esc stop · 🔭 deep search · 🤖 agent team ·
-        🧠 thinking · ⚔️ arena
-      </p>
+    <div className="flex items-center justify-center min-h-[44vh] select-none">
+      {/* 🏠 Grok-clean home: only the Mood AI mark as a faint watermark */}
+      <img
+        src="/icon.png"
+        alt=""
+        aria-hidden
+        draggable={false}
+        className="w-44 sm:w-56 opacity-10 pointer-events-none"
+      />
     </div>
   );
 }
@@ -481,7 +479,18 @@ export default function ChatPage() {
     <AppShell title={activeTitle || "Mood Chat"}>
       {/* conversation toolbar — always visible; Share/Export need a live conversation */}
       <div className="border-b border-line px-3 sm:px-4 py-2 flex items-center gap-3 text-xs text-gray-500 shrink-0 compact-v">
-        <span className="flex-1 truncate">{activeTitle || (wsId ? `👥 ${wsName || "Team"} — new chat` : "New conversation")}</span>
+        {/* 🏠 Ask | Imagine tab pair (Grok-mirror; Imagine → image studio) */}
+        <div className="flex items-center gap-4 shrink-0 pr-1">
+          <span className="flex flex-col items-center" aria-current="page">
+            <span className="text-sm font-semibold text-white leading-tight">Ask</span>
+            <span className="h-0.5 w-5 rounded bg-white mt-0.5" />
+          </span>
+          <button onClick={() => router.push("/images")} className="flex flex-col items-center group">
+            <span className="text-sm font-medium text-gray-500 group-hover:text-gray-300 leading-tight transition">Imagine</span>
+            <span className="h-0.5 w-5 rounded bg-transparent mt-0.5" />
+          </button>
+        </div>
+        <span className="flex-1 truncate">{activeTitle || (wsId ? `👥 ${wsName || "Team"} — new chat` : "")}</span>
         {wsId && (
           <button
             onClick={() => {
@@ -588,6 +597,28 @@ export default function ChatPage() {
           <div ref={bottomRef} />
         </div>
       </div>
+      {/* 🏠 Grok-style quick-launch chips — only on the clean empty home */}
+      {msgs.length === 0 && (
+        <div className="px-3 sm:px-4 pb-2 shrink-0">
+          <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto flex gap-2 overflow-x-auto scrollbar-thin">
+            {([
+              { Icon: Clapperboard, label: "Create Videos", onClick: () => router.push("/films") },
+              { Icon: Brush, label: "Create design", onClick: () => router.push("/design") },
+              { Icon: ImageIcon, label: "Edit image", onClick: () => router.push("/images") },
+              { Icon: AudioLines, label: "Voice", onClick: () => router.push("/voice") },
+              { Icon: Telescope, label: "Deep research", onClick: () => setDeepMode(true) },
+            ] as const).map(({ Icon, label, onClick }) => (
+              <button
+                key={label}
+                onClick={onClick}
+                className="flex items-center gap-1.5 rounded-full bg-white/[0.06] border border-white/10 px-3.5 py-2 text-xs text-gray-300 hover:border-accent/40 hover:text-white transition whitespace-nowrap shrink-0"
+              >
+                <Icon size={13} className="text-gray-500" /> {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {/* 🧠 model picker + thinking + ⚔️ arena controls (hidden while deepsearching — it has its own pipeline) */}
       {!deepMode && (
         <ModelPicker
