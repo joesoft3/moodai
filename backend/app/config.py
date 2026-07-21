@@ -80,6 +80,16 @@ class Settings(BaseSettings):
     LLM_FALLBACK_PROVIDER: str = ""   # e.g. "gemini" (needs that provider's API key set)
     LLM_FALLBACK_MODEL: str = ""      # one model for all fallback calls, e.g. "gemini-2.5-flash"
 
+    # Durable file storage — local disk by default; Cloudflare R2 (S3-compatible,
+    # zero egress fees) when the R2_* envs are set. DB rows that hold files keep a
+    # local abs path OR an "r2:<key>" marker, so both backends coexist safely.
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET: str = "moodai"
+    R2_PRESIGN_SECONDS: int = 3600      # download link TTL for private objects
+    R2_PUBLIC_BASE_URL: str = ""        # optional public bucket/CDN base for permanent links
+
     # Multi-provider router (any OpenAI-compatible endpoint; inactive until keys set)
     GEMINI_API_KEY: str = ""
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
+from ...services import storage
 from ...db.models import FileAsset, Message, User
 from ...db.session import get_db
 from ...services.file_extract import allowed_mime, detect_mime, extract_text
@@ -51,13 +52,9 @@ def detect_audio_format(filename: str, content_type: str | None) -> str | None:
     return AUDIO_EXT_BY_MIME.get((content_type or "").split(";")[0].strip().lower())
 
 
-def _persist_upload(user_id: str, filename: str, data: bytes) -> str:
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", filename or "upload")
-    path = os.path.join(settings.UPLOAD_DIR, user_id, f"{uuid.uuid4().hex}_{safe}")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb") as fh:
-        fh.write(data)
-    return path
+async def _persist_upload(user_id: str, filename: str, data: bytes) -> str:
+    """Persist via the storage layer (local disk or Cloudflare R2 — durable)."""
+    return await storage.put_upload(user_id, filename, data)
 
 
 ANALYZE_SYSTEM_PROMPT = (
@@ -136,14 +133,21 @@ async def upload_file(
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, msg)
 
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", file.filename or "upload")
-    path = os.path.join(settings.UPLOAD_DIR, user.id, f"{uuid.uuid4().hex}_{safe}")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb") as fh:
-        fh.write(data)
+    path = await storage.put_upload(user.id, safe, data)
 
     text = None
     if not mime.startswith("image/"):
-        text = await asyncio.to_thread(extract_text, path, mime)
+        if storage.is_remote(path):
+            # extractor needs a local file — spill to /tmp, clean up after
+            tmp = os.path.join("/tmp", f"mood-x-{uuid.uuid4().hex}_{safe}")
+            with open(tmp, "wb") as fh:
+                fh.write(data)
+            try:
+                text = await asyncio.to_thread(extract_text, tmp, mime)
+            finally:
+                os.path.exists(tmp) and os.unlink(tmp)
+        else:
+            text = await asyncio.to_thread(extract_text, path, mime)
 
     asset = FileAsset(
         user_id=user.id,
@@ -199,7 +203,7 @@ async def analyze_audio_file(
         user_id=user.id,
         filename=filename,
         mime=f"audio/{fmt}",
-        path=_persist_upload(user.id, filename, data),
+        path=await _persist_upload(user.id, filename, data),
         size_bytes=len(data),
         extracted_text=transcript[: settings.MAX_FILE_CHARS],
     )
@@ -343,7 +347,7 @@ async def analyze_video_upload(
         user_id=user.id,
         filename=filename,
         mime=f"video/{ext}",
-        path=_persist_upload(user.id, filename, data),
+        path=await _persist_upload(user.id, filename, data),
         size_bytes=len(data),
         extracted_text=(transcript or "\n".join(captions))[: settings.MAX_FILE_CHARS],
     )
@@ -389,6 +393,11 @@ async def download_file(fid: str, db: AsyncSession = Depends(get_db), user: User
     asset = await db.get(FileAsset, fid)
     if not asset or asset.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+    if storage.is_remote(asset.path):
+        url = await storage.presigned_url(asset.path)
+        if not url:
+            raise HTTPException(status.HTTP_410_GONE, "File content is no longer in storage")
+        return RedirectResponse(url, status_code=307)
     if not os.path.exists(asset.path):
         raise HTTPException(status.HTTP_410_GONE, "File content is no longer on disk")
     return FileResponse(asset.path, filename=asset.filename, media_type=asset.mime or "application/octet-stream")
@@ -405,9 +414,11 @@ async def reanalyze_file(
     asset = await db.get(FileAsset, fid)
     if not asset or asset.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
-    if not os.path.exists(asset.path):
+    if not os.path.exists(asset.path) and not storage.is_remote(asset.path):
         raise HTTPException(status.HTTP_410_GONE, "File content is no longer on disk")
-    data = open(asset.path, "rb").read()
+    data = await storage.read_bytes(asset.path)
+    if data is None:
+        raise HTTPException(status.HTTP_410_GONE, "File content is no longer readable")
     user_prompt = (prompt or "").strip()[:500]
 
     fmt = detect_audio_format(asset.filename, asset.mime)
@@ -481,7 +492,7 @@ async def delete_file(fid: str, db: AsyncSession = Depends(get_db), user: User =
     await db.commit()
     await delete_document_chunks(fid)  # best-effort vector cleanup
     try:
-        os.remove(asset.path)
+        await storage.delete(asset.path)
     except OSError:
         pass
     return Response(status_code=204)

@@ -31,3 +31,4 @@ opentelemetry-instrumentation-fastapi>=0.48b0
 opentelemetry-instrumentation-httpx>=0.48b0
 aiosqlite>=0.20
 imageio-ffmpeg>=0.5.1   # static ffmpeg fallback for apt-less hosts (Vercel/Lambda); unused when ffmpeg is on PATH
+boto3>=1.34             # Cloudflare R2 storage backend (S3-compatible); lazy-imported, only used when R2_* is set

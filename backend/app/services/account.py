@@ -26,16 +26,18 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
+from . import storage
 from ..db import models as M
 
 
-async def collect_user_media(db: AsyncSession, user_id: str) -> list[Path]:
-    """Every on-disk path owned by the user (absolute upload blobs + MEDIA_DIR names)."""
-    paths: list[Path] = []
+async def collect_user_media(db: AsyncSession, user_id: str) -> list:
+    """Every stored path owned by the user — absolute upload blobs, MEDIA_DIR
+    basenames resolved to paths, and 'r2:<key>' remote markers (kept as str)."""
+    paths: list = []
     uploads = (await db.execute(select(M.FileAsset.path).where(M.FileAsset.user_id == user_id))).scalars().all()
-    for p in uploads:
-        if p:
-            paths.append(Path(p))
+    for p_ in uploads:
+        if p_:
+            paths.append(p_ if p_.startswith("r2:") else Path(p_))
     media = Path(settings.MEDIA_DIR)
 
     def basenames(names: list[str | None]) -> None:
@@ -58,15 +60,12 @@ async def collect_user_media(db: AsyncSession, user_id: str) -> list[Path]:
     return paths
 
 
-def unlink_media(paths: list[Path]) -> int:
+async def unlink_media(paths: list) -> int:
+    """Delete across both storage backends (local paths + r2: markers)."""
     removed = 0
     for p in paths:
-        try:
-            if p.exists():
-                p.unlink()
-                removed += 1
-        except OSError:
-            pass
+        if await storage.delete(str(p)):
+            removed += 1
     return removed
 
 
@@ -135,7 +134,7 @@ async def delete_user_data(db: AsyncSession, user: M.User) -> dict[str, Any]:
     await db.commit()
 
     await purge_memories(uid)
-    files_removed = unlink_media(media_paths)
+    files_removed = await unlink_media(media_paths)
     return {
         "conversations_removed": len(my_convs),
         "teams_dissolved": len(owned_ws),

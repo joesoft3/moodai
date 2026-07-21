@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Mood AI — AUTO-DEPLOY backend API to Fly.io on every push to main.
+#
+# One-time setup (~3 min, see docs/DEPLOY-FLY.md):
+#   1. fly auth token  (flyctl tokens create deploy)
+#   2. GitHub repo → Settings → Secrets and variables → Actions:
+#        Secret:    FLY_API_TOKEN
+#        Variable:  FLY_CONNECTED = true
+# ─────────────────────────────────────────────────────────────────────────────
+name: deploy-fly
+
+on:
+  push:
+    branches: [main]
+    paths: ["backend/**", "fly.toml", ".github/workflows/deploy-fly.yml"]
+  workflow_dispatch: {}
+
+concurrency:
+  group: fly-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: ${{ vars.FLY_CONNECTED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly.io
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy --remote-only --config fly.toml --yes
+          URL="https://moodai-api.fly.dev"
+          echo "### 🪰 Fly deploy live" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL/healthz → \`{\"ok\":true}\` expected" >> "$GITHUB_STEP_SUMMARY"
