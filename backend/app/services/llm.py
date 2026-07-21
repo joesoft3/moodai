@@ -61,6 +61,18 @@ class LLMService:
         spec = self._provider_specs().get(key)
         return bool(spec and spec[1])
 
+    def _failover(self, provider: str | None, model: str) -> tuple[str | None, str]:
+        """Stand-in provider while xAI is down/unfunded (LLM_FALLBACK_*).
+
+        Static swap at the seam: any xAI-bound call is rerouted to the fallback
+        provider+model. Unset the envs and the primary stack resumes with zero
+        code changes. Metering still records the model actually used.
+        """
+        fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
+        if fb and provider in (None, "xai") and settings.LLM_FALLBACK_MODEL and self.provider_available(fb):
+            return fb, settings.LLM_FALLBACK_MODEL
+        return provider, model
+
     def client_for(self, provider: str | None) -> AsyncOpenAI:
         key = provider or "xai"
         if key not in self._clients:
@@ -97,6 +109,7 @@ class LLMService:
         provider: str | None = None,
         think: bool = False,
     ) -> AsyncIterator[dict]:
+        provider, model = self._failover(provider, model)
         LLM_COUNT.labels(model=model, kind="stream").inc()
         t0 = time.perf_counter()
         try:
@@ -152,6 +165,7 @@ class LLMService:
         provider: str | None = None,
     ) -> str:
         m = model or settings.MODEL_FAST
+        provider, m = self._failover(provider, m)
         LLM_COUNT.labels(model=m, kind="complete").inc()
         t0 = time.perf_counter()
         try:
@@ -180,6 +194,7 @@ class LLMService:
         """One function-calling round. Returns the raw assistant message object
         (inspect .tool_calls; convert with .model_dump(exclude_none=True) to re-append)."""
         m = model or settings.MODEL_CHAT
+        provider, m = self._failover(provider, m)
         LLM_COUNT.labels(model=m, kind="complete").inc()
         t0 = time.perf_counter()
         try:
@@ -201,6 +216,7 @@ class LLMService:
         """Non-streaming completion with xAI Live Search. Returns (text, citations).
         Live Search is xAI-only — other providers should use plain complete()."""
         m = model or settings.MODEL_CHAT
+        provider, m = self._failover(provider, m)
         LLM_COUNT.labels(model=m, kind="search").inc()
         t0 = time.perf_counter()
         try:

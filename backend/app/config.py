@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     ARENA_GEMINI_MODEL: str = "gemini-2.5-pro"
     ARENA_CODE_MODEL: str = "grok-code-fast-1"
 
+    # LLM failover — while set, calls that would go to xAI (chat, picker tiers,
+    # vision analysis, titles, memory) are answered by the stand-in provider
+    # instead. Perfect for "xAI credits not purchased yet" or provider outages.
+    # Unset both and the Grok primary stack resumes instantly.
+    LLM_FALLBACK_PROVIDER: str = ""   # e.g. "gemini" (needs that provider's API key set)
+    LLM_FALLBACK_MODEL: str = ""      # one model for all fallback calls, e.g. "gemini-2.5-flash"
+
     # Multi-provider router (any OpenAI-compatible endpoint; inactive until keys set)
     GEMINI_API_KEY: str = ""
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"

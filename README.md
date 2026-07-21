@@ -29,6 +29,7 @@ Mood AI is a full-stack AI super-app scaffold that delivers Grok-style capabilit
 - 🔒 JWT auth, Redis rate limiting, Stripe subscription hooks
 - 🛡 **Owner panel** — platform stats, user administration (plan/reset/admin/delete), sign-up gate (invite-only toggle + app access code, hashed) — plus an **env-bootstrapped owner account**
 - 🗂 Files manager + 🎵🎞 audio/video analysis — transcripts & answers from songs/lectures/clips (ffmpeg frame sampling + Grok vision), CSV exports (usage & domain analytics)
+- 🔁 **One-env LLM failover** — flip `LLM_FALLBACK_PROVIDER`/`LLM_FALLBACK_MODEL` and chat, picker tiers, vision & memory ride a stand-in provider (Gemini/OpenAI-compat) while the primary is down or unfunded; unset and Grok resumes
 - 🐳 One-command Docker setup; Kubernetes-ready architecture
 
 > See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full technical blueprint,

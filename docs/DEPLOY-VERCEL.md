@@ -53,6 +53,9 @@ so the backend needs a **hosted Postgres** — Supabase free tier is perfect:
 | `ADMIN_BOOTSTRAP_PASSWORD` | 〈your owner password — shown in chat〉 | owner login |
 | `ADMIN_EMAILS` | 〈same email〉 | always-admin list |
 | `OPENAI_API_KEY` | 〈from <https://platform.openai.com>〉 | voice + memory embeddings (Vercel build is slim — no local ONNX) |
+| `GEMINI_API_KEY` | 〈from <https://aistudio.google.com/apikey>〉 | free stand-in brain |
+| `LLM_FALLBACK_PROVIDER` | `gemini` | route ALL xAI calls to the stand-in while primary is unfunded/down |
+| `LLM_FALLBACK_MODEL` | `gemini-2.5-flash` | the stand-in model (multimodal — covers vision too) |
 | `QDRANT_URL` | `https://<cluster>.cloud.qdrant.io:6333` + set nothing else | optional: long-term memory (free cloud tier) |
 
 ⛔ Do **not** set `APP_PASSWORD` (that would re-enable the removed signup gate).
