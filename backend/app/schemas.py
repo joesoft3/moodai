@@ -21,6 +21,11 @@ class AccountDeleteRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)  # re-confirm to delete
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)  # proof of ownership
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class ClerkAuthRequest(BaseModel):
     token: str = Field(min_length=20)  # Clerk session JWT from the frontend SDK
 

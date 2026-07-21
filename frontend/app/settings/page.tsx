@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, Brain, Copy, CreditCard, Globe, LogOut, Puzzle, RefreshCw, SearchCheck, SlidersHorizontal, Trash2, User, Users, X } from "lucide-react";
+import { Activity, Brain, Copy, CreditCard, Dices, Eye, EyeOff, Globe, KeyRound, LogOut, Puzzle, RefreshCw, SearchCheck, SlidersHorizontal, Trash2, User, Users, X } from "lucide-react";
+import { generatePassword, passwordStrength } from "@/lib/password";
 import AppShell from "@/components/AppShell";
 import { apiFetch, token } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -276,6 +277,13 @@ export default function SettingsPage() {
   const [delPw, setDelPw] = useState("");
   const [delBusy, setDelBusy] = useState(false);
   const [delMsg, setDelMsg] = useState("");
+  // 🔑 security — change password (v1.8.0)
+  const [pwCur, setPwCur] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwShow, setPwShow] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwCopied, setPwCopied] = useState(false);
+  const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [buyQuery, setBuyQuery] = useState("");
   const [buyResults, setBuyResults] = useState<DomainResult[] | null>(null);
   const [buyPick, setBuyPick] = useState<DomainResult | null>(null);
@@ -738,6 +746,38 @@ export default function SettingsPage() {
     router.push("/login");
   }
 
+  // 🔑 change password — server requires the CURRENT password, refuses no-ops
+  async function changePassword() {
+    setPwMsg(null);
+    if (!pwCur) return setPwMsg({ ok: false, text: "Enter your current password first." });
+    if (pwNew.length < 8) return setPwMsg({ ok: false, text: "New password needs at least 8 characters." });
+    if (pwCur === pwNew) return setPwMsg({ ok: false, text: "New password must differ from the current one." });
+    setPwBusy(true);
+    try {
+      await apiFetch("/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ current_password: pwCur, new_password: pwNew }),
+      });
+      setPwMsg({ ok: true, text: "Password updated ✓ — this device stays signed in." });
+      setPwCur(""); setPwNew("");
+    } catch (e: any) {
+      setPwMsg({ ok: false, text: e?.message || "Couldn't update the password." });
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  // 🎲 generate + auto-copy a strong password into the new-password field
+  async function genNewPassword() {
+    const pw = generatePassword(16);
+    setPwNew(pw);
+    setPwShow(true); // reveal so the owner can read/save it
+    setPwMsg(null);
+    const ok = await copyText(pw);
+    setPwCopied(ok);
+    if (ok) setTimeout(() => setPwCopied(false), 2000);
+  }
+
   async function deleteAccount() {
     if (delBusy || !delPw) return;
     setDelBusy(true);
@@ -788,8 +828,71 @@ export default function SettingsPage() {
             </button>
           </Card>
 
+          {/* Security — password (v1.8.0) */}
+          <Card icon={<KeyRound size={16} />} title="Security — password">
+            <div className="space-y-3">
+              <label className="block">
+                <span className="text-xs text-gray-500 block mb-1">Current password</span>
+                <input
+                  type="password"
+                  value={pwCur}
+                  onChange={(e) => { setPwCur(e.target.value); setPwMsg(null); }}
+                  autoComplete="current-password"
+                  className="w-full bg-bg border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  placeholder="••••••••"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs text-gray-500 block mb-1">New password</span>
+                <div className="relative">
+                  <input
+                    type={pwShow ? "text" : "password"}
+                    value={pwNew}
+                    onChange={(e) => { setPwNew(e.target.value); setPwMsg(null); }}
+                    autoComplete="new-password"
+                    className="w-full bg-bg border border-line rounded-lg px-3 py-2 pr-20 text-sm focus:outline-none focus:border-accent"
+                    placeholder="Min 8 characters"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPwShow((s) => !s)}
+                    aria-label={pwShow ? "Hide password" : "Show password"}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-200 p-1"
+                  >
+                    {pwShow ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={genNewPassword}
+                  className="flex items-center gap-1.5 text-xs rounded-lg border border-line px-2.5 py-1.5 text-gray-300 hover:border-accent hover:text-accent transition"
+                >
+                  <Dices size={13} /> {pwCopied ? "Copied ✓" : "Generate strong"}
+                </button>
+                {pwNew && (
+                  <span className={`text-[11px] ${passwordStrength(pwNew).cls}`}>
+                    {passwordStrength(pwNew).label}
+                  </span>
+                )}
+              </div>
+              {pwMsg && (
+                <p className={`text-xs ${pwMsg.ok ? "text-emerald-400" : "text-red-400"}`}>{pwMsg.text}</p>
+              )}
+              <button
+                onClick={changePassword}
+                disabled={pwBusy || !pwCur || pwNew.length < 8}
+                className="rounded-xl bg-accent text-black font-semibold px-4 py-2 text-sm disabled:opacity-40 hover:brightness-110 transition"
+              >
+                {pwBusy ? "Updating…" : "Change password"}
+              </button>
+            </div>
+          </Card>
+
           {/* Billing */}
           <Card icon={<CreditCard size={16} />} title="Subscription">
+
             <p className="text-sm text-gray-400">
               Status: <span className="text-gray-200 font-medium">{billing?.status ?? "unavailable"}</span>
             </p>

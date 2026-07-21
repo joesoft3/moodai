@@ -201,6 +201,20 @@ export default function AppShell({
         {/* Page content */}
         <div className="flex-1 min-h-0 flex flex-col">{children}</div>
 
+        {/* 👑 Owner panel floating button — admins only, hidden while inside /admin.
+            Mobile: parked just above the tab bar; desktop: bottom-right corner. */}
+        {isAdmin && pathname !== "/admin" && (
+          <Link
+            href="/admin"
+            aria-label="Open owner panel"
+            title="Owner panel"
+            className="touch-manipulation absolute z-30 right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-6 md:right-6 flex items-center gap-2 rounded-full bg-accent text-black font-semibold pl-3.5 pr-4 py-3 shadow-[0_10px_28px_rgba(0,0,0,0.5)] ring-1 ring-white/20 hover:brightness-110 hover:scale-[1.04] active:scale-95 transition"
+          >
+            <ShieldCheck size={18} />
+            <span className="text-xs tracking-wide">Admin</span>
+          </Link>
+        )}
+
         {/* Bottom tab bar (phones only) — in flow, raised above content, always tappable */}
         <nav className="md:hidden shrink-0 relative z-10 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)]">
           <div className="grid grid-cols-5 h-14 max-[340px]:h-12">

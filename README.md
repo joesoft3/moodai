@@ -199,6 +199,10 @@ mood-ai/
 | **Pro chat UX** — stop generation, regenerate, copy + code-copy, read-aloud, export .md, rename chats, ⌘K / `/` / Esc shortcuts, per-answer model badge, persistent custom instructions | ✅ |
 | **Alembic migrations** (baseline + guarded upgrades) | ✅ new |
 | **Observability** — Prometheus metrics, LLM instrumentation, request-id logs, health/ready probes, optional OpenTelemetry tracing | ✅ new |
+| **Owner-panel floating button** — 👑 floating Admin pill on every app page (admins only, server-verified) | ✅ v1.8.0 |
+| **Self-service password change + CSPRNG generator** — Settings → Security: current-password-gated rotate, 🎲 one-tap strong-password generator with strength hint + auto-copy | ✅ v1.8.0 |
+
+
 
 ### Ops quick reference
 

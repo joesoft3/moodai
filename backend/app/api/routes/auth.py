@@ -5,8 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.security import create_access_token, hash_password, verify_password
 from ...db.models import User
 from ...db.session import get_db
-from ...schemas import (AccountDeleteRequest, ClerkAuthRequest, LoginRequest, PreferencesUpdate,
-                         RegisterRequest, TokenResponse)
+from ...schemas import (AccountDeleteRequest, ClerkAuthRequest, LoginRequest, PasswordChangeRequest,
+                         PreferencesUpdate, RegisterRequest, TokenResponse)
 from ...services import account as account_svc
 from ...services import clerk_auth
 from ...services.platform_settings import app_password_hash, signup_open
@@ -104,6 +104,36 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 @router.get("/me")
 async def me(user: User = Depends(get_current_user)):
     return user_out(user)
+
+
+@router.post("/change-password")
+async def change_password(
+    req: PasswordChangeRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """🔑 Self-service password change — gated on the CURRENT password.
+
+    Generating a strong password is a client convenience (Settings → Security
+    ships a crypto-strength generator); the API enforces ≥8 chars, refuses a
+    no-op rotation, and only rewrites the hash AFTER the current password
+    verifies. Existing sessions stay signed in (stateless JWT) — log out of
+    other devices manually if you suspect a leak. Server-side admins can also
+    reset a user's password from the owner panel (no current password needed),
+    but that path is for support recovery, not self-service.
+    """
+    if not verify_password(req.current_password, user.hashed_password):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Current password didn't match")
+    if req.current_password == req.new_password:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "New password must differ from the current one")
+    # The dep-injected session may differ from the auth session — reattach.
+    db_user = await db.get(User, user.id)
+    if db_user is None:  # account deleted between token issue and now
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account no longer exists")
+    db_user.hashed_password = hash_password(req.new_password)
+    await db.commit()
+    return {"ok": True, "message": "Password updated — this device stays signed in."}
 
 
 @router.delete("/me")
