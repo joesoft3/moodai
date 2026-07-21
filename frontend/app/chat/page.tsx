@@ -19,6 +19,7 @@ const THINKABLE = ["grok-4", "auto", "grok-code-fast-1"];
 
 function EmptyState() {
   return (
+<<<<<<< Updated upstream
     <div className="flex items-center justify-center min-h-[44vh] select-none">
       {/* 🏠 Grok-clean home: only the Mood AI mark as a faint watermark */}
       <img
@@ -28,6 +29,21 @@ function EmptyState() {
         draggable={false}
         className="w-44 sm:w-56 opacity-10 pointer-events-none"
       />
+=======
+    <div className="flex items-center justify-center min-h-[58vh] select-none">
+      {/* 🏠 Grok-clean home: the Mood AI ✦ mark itself as a faint, theme-aware
+          watermark (inline SVG → crisp at any density, currentColor in both themes) */}
+      <svg
+        viewBox="0 0 64 64"
+        aria-hidden
+        className="w-44 sm:w-56 opacity-[0.07] text-accent pointer-events-none"
+      >
+        <path
+          fill="currentColor"
+          d="M32 2c2.2 14.9 7.6 22.4 15 25.5C56 31 60 32 62 32c-2 0-6 1-15 4.5C39.6 39.6 34.2 47.1 32 62c-2.2-14.9-7.6-22.4-15-25.5C8 33 4 32 2 32c2 0 6-1 15-4.5C24.4 24.4 29.8 16.9 32 2Z"
+        />
+      </svg>
+>>>>>>> Stashed changes
     </div>
   );
 }

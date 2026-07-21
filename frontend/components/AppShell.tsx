@@ -215,10 +215,11 @@ export default function AppShell({
           </Link>
         )}
 
-        {/* Bottom tab bar (phones only) — in flow, raised above content, always tappable */}
+        {/* Bottom tab bar (phones only) — in flow, raised above content, always tappable.
+            Grok-clean: first 5 destinations only; the full list lives in the ☰ drawer. */}
         <nav className="md:hidden shrink-0 relative z-10 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)]">
           <div className="grid grid-cols-5 h-14 max-[340px]:h-12">
-            {NAV.map(({ href, label, icon: Icon }) => {
+            {NAV.slice(0, 5).map(({ href, label, icon: Icon }) => {
               const active = pathname === href;
               return (
                 <Link
