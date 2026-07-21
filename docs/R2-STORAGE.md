@@ -1,19 +1,15 @@
 # 📦 Cloudflare R2 — durable file storage
 
-> ### 🚦 LIVE STATUS (2026-07-21 — agent-verified)
-> | Piece | State |
+> ### 🚦 LIVE STATUS (2026-07-21) — **WIRED & PROVEN ON BOTH HOSTS** ✅
+> | Piece | State (agent-verified live) |
 > |---|---|
-> | Cloudflare API token | ✅ pasted by user, validated live (`cfat_…` account-owned token — new scannable format) |
-> | Account ID | ✅ pulled via API: `119f90c8517e59d8c2584f77749080d0` (Joesoft2024@gmail.com's Account) |
-> | Token R2 permission | ✅ routes cleanly (Cloudflare accepted the auth on R2 bucket routes — only product enablement blocks) |
-> | Bucket `moodai` | ⏳ one dashboard click: enable R2 → agent creates bucket via API (PUT already staged + permission-checked) |
-> | S3 key pair (Access Key + Secret) | ⏳ **dashboard-only** — Cloudflare has NO API to mint these (verified: route 404); user copies from *Manage R2 API Tokens* |
-> | Backend code | ✅ shipped & live-tested (moto roundtrip — upload→presign→307→bytes→delete) |
+> | Account / bucket | ✅ `Joesoft2024@gmail.com's Account` (`119f…80d0`) — bucket **`moodai`** live |
+> | Credentials | ✅ R2-capable `cfat` token (verified active) + S3 key pair; **all sealed in GitHub Secrets** (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_API_TOKEN`) |
+> | Fly.io API | ✅ `R2_*` secrets deployed — **live proof**: API upload → `GET /files/{id}/download` → **307 → presigned `…r2.cloudflarestorage.com` → byte-identical download (70/70 B) 🎯** |
+> | Vercel API | ✅ `R2_*` env set + redeployed — **same 307-redirect proof passing** |
+> | Honest journey | 🔍 old token lacked R2 perms (misleading `10042`), R2 product needed the card+enable click, account-endpoint TLS refused while unprovisioned — all diagnosed & fixed sequentially; broken-empty-secret state caught mid-flight and re-set before proof |
 >
-> **Remaining (≈90 seconds, both in the Cloudflare dashboard):**
-> 1. **R2 Object Storage** → *Purchase/Enable* (free tier: 10 GB, zero egress; a card on the account is Cloudflare's requirement even at $0 usage)
-> 2. **Manage R2 API Tokens** → *Create API token* → *Admin Read & Write* → paste the **Access Key ID** + **Secret Access Key** here
-> → then the agent wires them into Vercel + Fly + GitHub secrets, creates the bucket, and runs a real upload/download roundtrip as proof.
+> Your uploads are now **durable across deploys and hosts**. Uploads made before this date stay on each host's local disk (mixed storage is fully supported per-file).
 
 User uploads become durable once `R2_*` envs are set: files land in your
 R2 bucket (S3-compatible, **zero egress fees**), with time-limited download
