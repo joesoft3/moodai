@@ -70,6 +70,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<AttachedFile> _files = [];
   final _recorder = AudioRecorder();
   final _player = AudioPlayer();
+  int _homeTab = 0; // 🏠 Grok-style home: 0 = Ask (chat), Imagine → creation studios
   List<Conversation> _conversations = [];
   String? _conversationId;
   String? _recordPath;
@@ -397,8 +398,8 @@ class _ChatScreenState extends State<ChatScreen> {
   static const _pickerModels = [
     ['auto', '🚀', 'Auto · best pick'],
     ['grok-3-mini', '⚡', 'grok-3-mini · cheapest'],
-    ['grok-4-fast', '💨', 'grok-4-fast · newest, 2M ctx'],
-    ['grok-4', '👑', 'grok-4 · flagship (🧠 thinking)'],
+    ['grok-4-fast', '💨', 'S1 Mood-4-Fast · newest, 2M ctx'],
+    ['grok-4', '👑', 'S1 Mood-4 · flagship (🧠 thinking)'],
     ['grok-code-fast-1', '💻', 'grok-code-fast-1 (🧠 thinking)'],
   ];
 
@@ -435,7 +436,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   contentPadding: EdgeInsets.zero,
                   activeColor: MoodColors.accent,
                   title: Text('🧠 Extended reasoning', style: TextStyle(color: (_model == 'auto' || _model == 'grok-4' || _model == 'grok-code-fast-1') ? Colors.white70 : Colors.white24, fontSize: 13)),
-                  subtitle: const Text('grok-4 or grok-code-fast-1 only', style: TextStyle(color: Colors.white24, fontSize: 11)),
+                  subtitle: const Text('S1 Mood-4 (or code models) only', style: TextStyle(color: Colors.white24, fontSize: 11)),
                   value: _thinkOn && (_model == 'auto' || _model == 'grok-4' || _model == 'grok-code-fast-1'),
                   onChanged: (_model == 'auto' || _model == 'grok-4' || _model == 'grok-code-fast-1')
                       ? (v) {
@@ -636,48 +637,92 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  String _title() {
-    if (_conversationId == null) return 'Mood AI';
-    for (final c in _conversations) {
-      if (c.id == _conversationId) return c.title;
-    }
-    return 'Mood AI';
+  // 🏠 Ask | Imagine — the Grok-mirror tab pair in the top bar.
+  Widget _modeTabs() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _homeTabLabel('Ask', _homeTab == 0, () => setState(() => _homeTab = 0)),
+        const SizedBox(width: 20),
+        _homeTabLabel('Imagine', false, () {
+          Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DesignScreen()));
+        }),
+      ],
+    );
+  }
+
+  Widget _homeTabLabel(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  color: active ? Colors.white : Colors.grey.shade500)),
+          const SizedBox(height: 3),
+          Container(
+            height: 2.5,
+            width: 22,
+            decoration: BoxDecoration(
+                color: active ? Colors.white : Colors.transparent,
+                borderRadius: BorderRadius.circular(2)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // display-name rule: users see S1 Mood-4 / S1 Mood-4-Fast, never raw vendor ids
+  String _modelLabel() {
+    final base = _model == 'grok-4-fast' ? 'S1 Mood-4-Fast' : 'S1 Mood-4';
+    return _model == 'auto' ? '$base · auto' : base;
+  }
+
+  Widget _quickChip(IconData icon, String label, VoidCallback? onTap) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ActionChip(
+        avatar: Icon(icon, size: 16, color: Colors.grey.shade400),
+        label: Text(label, style: const TextStyle(fontSize: 12.5)),
+        onPressed: onTap,
+        backgroundColor: Colors.white.withOpacity(0.06),
+        side: BorderSide(color: Colors.white.withOpacity(0.08)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentTitle = _title();
     return Scaffold(
       appBar: AppBar(
-        title: Text(currentTitle, overflow: TextOverflow.ellipsis),
+        // 🏠 Grok-clean top bar: hamburger = everything moved to the menu,
+        // Ask | Imagine tabs centered, ⚔ Arena as the single right icon.
+        automaticallyImplyLeading: false,
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu),
+            tooltip: 'Menu — chats, studios, AI modes',
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
+        centerTitle: true,
+        titleSpacing: 0,
+        title: _modeTabs(),
         actions: [
           IconButton(
-            tooltip: '⚔️ Arena — models debate, Grok-4 judges',
-            icon: Icon(Icons.shield_outlined, color: _arenaMode ? MoodColors.accent : Colors.grey[700]),
+            tooltip: '⚔️ Arena — models debate, S1 Mood-4 judges',
+            icon: Icon(_arenaMode ? Icons.shield : Icons.shield_outlined,
+                color: _arenaMode ? MoodColors.accent : Colors.grey[700]),
             onPressed: () => setState(() {
               _arenaMode = !_arenaMode;
               if (_arenaMode) _agentMode = false;
             }),
           ),
-          IconButton(
-            tooltip: 'Model · $_model${_thinkOn ? ' 🧠' : ''}',
-            icon: const Icon(Icons.tune, color: MoodColors.accent),
-            onPressed: _showModelPicker,
-          ),
-          IconButton(
-            tooltip: _agentMode ? 'Agent mode: on' : 'Agent mode: off',
-            icon: Icon(Icons.smart_toy_outlined, color: _agentMode ? MoodColors.accent : Colors.grey[700]),
-            onPressed: () => setState(() {
-              _agentMode = !_agentMode;
-              if (_agentMode) _arenaMode = false;
-            }),
-          ),
-          IconButton(
-            tooltip: _search ? 'Live search: on' : 'Live search: off',
-            icon: Icon(Icons.public, color: _search ? MoodColors.accent : Colors.grey[700]),
-            onPressed: () => setState(() => _search = !_search),
-          ),
-          IconButton(icon: const Icon(Icons.add), tooltip: 'New chat', onPressed: _newChat),
         ],
       ),
       drawer: Drawer(
@@ -698,6 +743,42 @@ class _ChatScreenState extends State<ChatScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
+              ),
+              // ── AI modes (moved off the home bar for a Grok-clean home) ──
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
+                child: Text('AI MODES', style: TextStyle(fontSize: 10, letterSpacing: 1.2, color: Colors.grey)),
+              ),
+              SwitchListTile.adaptive(
+                dense: true,
+                secondary: const Icon(Icons.smart_toy_outlined, size: 18),
+                title: const Text('Agent team', style: TextStyle(fontSize: 13)),
+                subtitle: const Text('planner → specialists → writer',
+                    style: TextStyle(fontSize: 10, color: Colors.grey)),
+                value: _agentMode,
+                onChanged: (v) => setState(() {
+                  _agentMode = v;
+                  if (v) _arenaMode = false;
+                }),
+              ),
+              SwitchListTile.adaptive(
+                dense: true,
+                secondary: const Icon(Icons.public, size: 18),
+                title: const Text('Live search', style: TextStyle(fontSize: 13)),
+                subtitle: const Text('cite fresh web sources in answers',
+                    style: TextStyle(fontSize: 10, color: Colors.grey)),
+                value: _search,
+                onChanged: (v) => setState(() => _search = v),
+              ),
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.tune, size: 18),
+                title: const Text('Model & reasoning', style: TextStyle(fontSize: 13)),
+                subtitle: Text(_modelLabel(), style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                onTap: () {
+                  Navigator.of(context).maybePop();
+                  _showModelPicker();
+                },
               ),
               // Teams: switch between personal chats and shared team workspaces,
               // or redeem an invite link/code.
@@ -845,22 +926,10 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: _messages.isEmpty
                 ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        Text('✦', style: TextStyle(fontSize: 40, color: MoodColors.accent)),
-                        SizedBox(height: 12),
-                        Text('How can I help today?', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                        SizedBox(height: 6),
-                        Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 32),
-                          child: Text(
-                            'Live web search, memory across chats, files, voice, agent mode — ask anything.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        ),
-                      ],
+                    // 🏠 Grok-clean home: just the Mood AI mark as a watermark.
+                    child: Opacity(
+                      opacity: 0.10,
+                      child: Image.asset('assets/icon/app_icon.png', width: 210),
                     ),
                   )
                 : ListView.builder(
@@ -874,6 +943,28 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                   ),
           ),
+          // 🏠 Quick-launch chips (Grok-style) — only on the clean empty home
+          if (_messages.isEmpty)
+            SizedBox(
+              height: 46,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                children: [
+                  _quickChip(Icons.movie_creation_outlined, 'Create Videos', () {
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FilmsScreen()));
+                  }),
+                  _quickChip(Icons.palette_outlined, 'Create design', () {
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DesignScreen()));
+                  }),
+                  _quickChip(Icons.content_cut, 'Edit clip', () {
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const EditScreen()));
+                  }),
+                  _quickChip(Icons.mic_none, 'Voice', _busy ? null : _toggleVoice),
+                  _quickChip(Icons.tune, _modelLabel(), _showModelPicker),
+                ],
+              ),
+            ),
           if (_files.isNotEmpty)
             SizedBox(
               height: 34,
