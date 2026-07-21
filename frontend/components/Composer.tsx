@@ -171,7 +171,7 @@ export default function Composer({
                       ? "Describe code to write / a bug to fix (🧠 toggle for reasoning)…"
                       : thinkOn
                         ? "Ask something worth deep reasoning (grok-4 🧠)…"
-                        : "Ask Mood anything…"
+                        : "Ask Mood…"
             }
             className="flex-1 min-w-0 bg-transparent resize-none outline-none text-sm py-2.5 px-1 placeholder-gray-600 max-h-40"
           />
@@ -192,7 +192,7 @@ export default function Composer({
           <button
             onClick={() => setDeepMode(!deepMode)}
             title="Deep search — multi-round agentic web research with full citations"
-            className={`composer-btn transition ${deepMode ? "text-accent" : "text-gray-600 hover:text-white"}`}
+            className={`composer-btn transition max-[560px]:hidden ${deepMode ? "text-accent" : "text-gray-600 hover:text-white"}`}
           >
             <Telescope size={18} />
           </button>
