@@ -1,5 +1,20 @@
 # 📦 Cloudflare R2 — durable file storage
 
+> ### 🚦 LIVE STATUS (2026-07-21 — agent-verified)
+> | Piece | State |
+> |---|---|
+> | Cloudflare API token | ✅ pasted by user, validated live (`cfat_…` account-owned token — new scannable format) |
+> | Account ID | ✅ pulled via API: `119f90c8517e59d8c2584f77749080d0` (Joesoft2024@gmail.com's Account) |
+> | Token R2 permission | ✅ routes cleanly (Cloudflare accepted the auth on R2 bucket routes — only product enablement blocks) |
+> | Bucket `moodai` | ⏳ one dashboard click: enable R2 → agent creates bucket via API (PUT already staged + permission-checked) |
+> | S3 key pair (Access Key + Secret) | ⏳ **dashboard-only** — Cloudflare has NO API to mint these (verified: route 404); user copies from *Manage R2 API Tokens* |
+> | Backend code | ✅ shipped & live-tested (moto roundtrip — upload→presign→307→bytes→delete) |
+>
+> **Remaining (≈90 seconds, both in the Cloudflare dashboard):**
+> 1. **R2 Object Storage** → *Purchase/Enable* (free tier: 10 GB, zero egress; a card on the account is Cloudflare's requirement even at $0 usage)
+> 2. **Manage R2 API Tokens** → *Create API token* → *Admin Read & Write* → paste the **Access Key ID** + **Secret Access Key** here
+> → then the agent wires them into Vercel + Fly + GitHub secrets, creates the bucket, and runs a real upload/download roundtrip as proof.
+
 User uploads become durable once `R2_*` envs are set: files land in your
 R2 bucket (S3-compatible, **zero egress fees**), with time-limited download
 links generated on demand. Without R2, files stay on local disk (dev) or the
