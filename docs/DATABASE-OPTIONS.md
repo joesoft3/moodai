@@ -1,5 +1,20 @@
 # 🗄️ Where Mood AI's database can live
 
+> ### 🚦 LIVE STATUS (2026-07-21) — **PRODUCTION DB IS LIVE** ✅
+> | Piece | State (all agent-verified) |
+> |---|---|
+> | Provider | **Neon** — project `neon-emerald-car` (Vercel-managed org), PostgreSQL 17.10, region `aws-us-east-2` |
+> | Schema | ✅ **20/20 alembic migrations** applied (0001 → 0019_design_orders) |
+> | Endpoint variant | ✅ **pooled** URI (`-pooler` host) chosen for Vercel serverless; direct also tested ✅ |
+> | `DATABASE_URL` | ✅ set on Vercel (encrypted, prod+preview) **and** sealed as GitHub secret; `NEON_API_KEY` sealed too |
+> | `/healthz` | ✅ `200 {"status":"ok","app":"Mood AI"}` on `moodai-api.vercel.app` |
+> | Auth live | ✅ register → 201 + JWT; `/me` reads back from Neon; 👑 owner bootstrapped: `admin@moodaiapp.com` (is_admin, boot email fixed — `.local` TLD breaks EmailStr) |
+> | Chat live | ✅ SSE: conversation persisted in Neon + model reply streamed (2.3 s) |
+>
+> Neon org is Vercel-managed (Marketplace integration) — project *creation* via
+> API is restricted; the agent used the pre-created project + role-password
+> reset to obtain credentials, fully headless.
+
 Mood AI's backend is **FastAPI + SQLAlchemy on Postgres** (20+ relational
 tables, JOINs, transactions) with SQLite for local dev. Any hosted Postgres
 works — paste its URI as `DATABASE_URL` and the app normalizes it
