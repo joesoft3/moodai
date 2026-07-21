@@ -1,8 +1,21 @@
 # 🪰 Deploy the Mood AI backend on Fly.io
 
+> ### 🚦 LIVE STATUS (2026-07-21 — agent-verified)
+> | Piece | State |
+> |---|---|
+> | Deploy token | ✅ pasted by user, validated (`fly auth whoami` OK), sealed as GitHub secret `FLY_API_TOKEN` |
+> | Org / region | ✅ `personal` (joesoft2024@gmail.com), app will live in **jnb** (Johannesburg, nearest 🇬🇭) |
+> | `fly.toml` + `Dockerfile.fly` | ✅ root-context build fixed (`1febc36`) — remote build verified structurally |
+> | **The one remaining click** | ⏳ **Fly needs a card on file before ANY app can be created:** [fly.io/dashboard/joesoft2024-gmail-com/billing](https://fly.io/dashboard/joesoft2024-gmail-com/billing) (usage-based — always-on tier ≈ $5–6/mo) |
+> | After that | Agent flips `FLY_CONNECTED=true` → CI creates app, volume, secrets & deploys automatically; nothing else to click |
+>
+> **Alternative if you'd rather stay free/zero-card for now:** the Vercel API
+> stays live; add a free **Neon** Postgres (3 clicks, no card — see [DATABASE-OPTIONS.md](DATABASE-OPTIONS.md))
+> and the whole stack goes green there. Fly can be flipped on later with zero code changes.
+
 The FastAPI backend runs on Fly.io as a **Docker machine** — full ffmpeg,
 voice WebSockets, no request-time limit, no cold-start surprises. The repo
-ships `fly.toml` (repo root) + `backend/Dockerfile`; this page is the clicks.
+ships `fly.toml` (repo root) + `Dockerfile.fly` (root build context); this page is the clicks.
 
 > Fly.io is the **host**, not the database — you still pick a Postgres
 > ([docs/DATABASE-OPTIONS.md](DATABASE-OPTIONS.md); Neon free tier is
