@@ -199,14 +199,14 @@ export default function Composer({
           <button
             onClick={() => setPluginMode(!pluginMode)}
             title="Plugins — act on your connected apps (Gmail, Calendar, GitHub). Connect them in Settings."
-            className={`composer-btn transition ${pluginMode ? "text-accent" : "text-gray-600 hover:text-white"}`}
+            className={`composer-btn transition max-[560px]:hidden ${pluginMode ? "text-accent" : "text-gray-600 hover:text-white"}`}
           >
             <Puzzle size={18} />
           </button>
           <button
             onClick={() => setVoiceMode(!voiceMode)}
             title="Voice mode (talk & hear replies)"
-            className={`composer-btn transition ${voiceMode ? "text-accent" : "text-gray-600 hover:text-white"}`}
+            className={`composer-btn transition max-[560px]:hidden ${voiceMode ? "text-accent" : "text-gray-600 hover:text-white"}`}
           >
             <Headphones size={18} />
           </button>

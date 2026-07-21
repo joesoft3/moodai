@@ -604,7 +604,7 @@ export default function ChatPage() {
       {/* 🏠 Grok-style quick-launch chips — only on the clean empty home */}
       {msgs.length === 0 && (
         <div className="px-3 sm:px-4 pb-2 shrink-0">
-          <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto flex gap-2 overflow-x-auto scrollbar-thin">
+          <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {([
               { Icon: Clapperboard, label: "Create Videos", onClick: () => router.push("/films") },
               { Icon: Brush, label: "Create design", onClick: () => router.push("/design") },
