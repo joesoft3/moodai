@@ -4,7 +4,7 @@ app = "moodai-api"
 primary_region = "jnb"          # Johannesburg — closest to 🇬🇭 Accra
 
 [build]
-  dockerfile = "backend/Dockerfile"
+  dockerfile = "Dockerfile.fly"
 
 [env]
   UPLOAD_DIR = "/data/storage"  # persistent volume below (uploads before R2 is wired)
