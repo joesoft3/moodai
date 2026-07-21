@@ -12,8 +12,9 @@ each step has a 🖱 = a click in your browser, and a ✅ = how you know it work
 ## Part A — Backend: pick ONE host ▲/🚄
 
 **Option 1 — Vercel ▲ (serverless, free tier, ≈6 min)** — recommended default.
-👉 Follow **[docs/DEPLOY-VERCEL.md](DEPLOY-VERCEL.md)** (includes the one-time
-Supabase database step), then come back here at **Part B**.
+👉 Follow **[docs/DEPLOY-VERCEL.md](DEPLOY-VERCEL.md)** (picking the database —
+Neon ⭐ or Supabase — is covered in **[docs/DATABASE-OPTIONS.md](DATABASE-OPTIONS.md)**),
+then come back here at **Part B**.
 
 **Option 2 — Railway 🚄 (Docker container, ≈8 min)** — pick this if you'll be
 rendering long videos often (no 60 s budget) or want voice *live* WebSocket.

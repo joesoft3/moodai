@@ -10,12 +10,31 @@ class Settings(BaseSettings):
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def _asyncpg_url(cls, v):
-        """Hosting platforms hand out postgres(ql):// DSNs — force the asyncpg driver."""
+        """Hosting platforms hand out postgres(ql):// DSNs — force the asyncpg driver,
+        and translate libpq-style query params that asyncpg can't parse.
+
+        Neon/Aiven/Supabase URIs often carry `?sslmode=require&channel_binding=require`;
+        asyncpg only understands `ssl=…`, so pasted-as-is URIs would crash at boot.
+        """
         if isinstance(v, str):
             if v.startswith("postgres://"):
-                return "postgresql+asyncpg://" + v[len("postgres://"):]
-            if v.startswith("postgresql://"):
-                return "postgresql+asyncpg://" + v[len("postgresql://"):]
+                v = "postgresql+asyncpg://" + v[len("postgres://"):]
+            elif v.startswith("postgresql://"):
+                v = "postgresql+asyncpg://" + v[len("postgresql://"):]
+            if "+asyncpg://" in v and "?" in v:
+                base, _, qs = v.partition("?")
+                keep: list[str] = []
+                for pair in qs.split("&"):
+                    k, _, val = pair.partition("=")
+                    if k == "sslmode":
+                        if val in ("require", "verify-ca", "verify-full"):
+                            keep.append("ssl=require")
+                        # disable/prefer/allow → asyncpg's default negotiation is fine; drop
+                    elif k == "channel_binding":
+                        continue  # asyncpg negotiates channel binding itself
+                    else:
+                        keep.append(pair)
+                v = base + (("?" + "&".join(keep)) if keep else "")
         return v
 
     # Core

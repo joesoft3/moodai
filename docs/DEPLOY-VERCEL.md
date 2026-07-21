@@ -18,15 +18,22 @@ every request into `api/index.py`.
 ## Step 0 — Database (≈2 min, one time)
 
 Serverless functions can't keep a local database file (the disk resets),
-so the backend needs a **hosted Postgres** — Supabase free tier is perfect:
+so the backend needs a **hosted Postgres**. Easiest first — full comparison in
+[docs/DATABASE-OPTIONS.md](DATABASE-OPTIONS.md):
 
+**A. Neon ⭐ (native Vercel integration)**
+1. 🖱 Vercel project → **Storage** tab → **Create Database** → **Neon** (free)
+2. Follow the prompts → `DATABASE_URL` is added to the project **automatically**
+3. Skip to Step 3 — or keep reading if you prefer Supabase.
+
+**B. Supabase**
 1. 🖱 Follow [docs/SUPABASE.md](SUPABASE.md) **Step 1 only** (create project).
 2. 🖱 Copy the **connection string** (Supabase → Connect → "URI"), format:
    ```
    postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
    ```
-   You'll paste it as `DATABASE_URL` below. (The app converts it to the async
-   driver automatically — paste it exactly as Supabase gives it.)
+   You'll paste it as `DATABASE_URL` in Step 2. (The app normalizes the driver
+   and `sslmode` automatically — paste it exactly as your provider shows it.)
 
 ## Step 1 — Import into Vercel (≈3 min)
 
