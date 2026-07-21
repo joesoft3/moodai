@@ -31,15 +31,18 @@ def r2_configured() -> bool:
 
 
 def _s3():
-    """Lazy boto3 client (import is deferred so slim dev installs stay boto3-free
-    — on hosts where R2 is configured, boto3 is present via requirements)."""
+    """Lazy boto3 client. Default endpoint is Cloudflare R2; R2_ENDPOINT_URL
+    overrides it for any S3-compatible service (MinIO, Backblaze B2, moto CI)."""
     global _client
     if _client is None:
-        import boto3  # lazy: only when R2 is actually in use
+        import boto3  # lazy: only when remote storage is actually in use
 
+        endpoint = settings.R2_ENDPOINT_URL or (
+            f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        )
         _client = boto3.client(
             "s3",
-            endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+            endpoint_url=endpoint,
             aws_access_key_id=settings.R2_ACCESS_KEY_ID,
             aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
             region_name="auto",  # R2 convention

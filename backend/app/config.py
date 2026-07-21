@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     R2_BUCKET: str = "moodai"
     R2_PRESIGN_SECONDS: int = 3600      # download link TTL for private objects
     R2_PUBLIC_BASE_URL: str = ""        # optional public bucket/CDN base for permanent links
+    R2_ENDPOINT_URL: str = ""           # override for ANY S3-compatible service (MinIO/B2/moto)
 
     # Multi-provider router (any OpenAI-compatible endpoint; inactive until keys set)
     GEMINI_API_KEY: str = ""
@@ -134,6 +135,14 @@ class Settings(BaseSettings):
     DOMAIN_SYNC_HOURS: int = 24       # how often the watchdog refreshes registrar expiry dates
     DOMAIN_RENEW_WINDOW_DAYS: int = 30  # show "Renew now" / send reminder inside this window
     INVITE_TTL_DAYS: int = 7          # workspace invite link lifetime
+
+    # Clerk federation (Phase 1 — optional; docs/CLERK-AUTH-ASSESSMENT.md)
+    # Verifies Clerk session JWTs (RS256 JWKS), links by email, mints our JWT.
+    # Disabled until CLERK_ISSUER is set. Zero schema changes.
+    CLERK_ISSUER: str = ""            # e.g. https://your-app.clerk.accounts.dev
+    CLERK_SECRET_KEY: str = ""        # sk_live_/sk_test_… — for /v1/users profile lookups
+    CLERK_AUDIENCE: str = ""          # optional azp/aud restriction
+    CLERK_JWKS_URL: str = ""          # override; default {CLERK_ISSUER}/.well-known/jwks.json
 
     # App owner / admin panel
     ADMIN_EMAILS: str = ""            # comma-separated owner emails (always admin, in addition to users.is_admin)

@@ -26,6 +26,7 @@ DB rows keep either a local absolute path or an `r2:<key>` marker, so mixing
 | `R2_BUCKET` | `moodai` |
 | `R2_PRESIGN_SECONDS` | optional, default 3600 (download-link TTL) |
 | `R2_PUBLIC_BASE_URL` | optional — public bucket/`r2.dev`/custom CDN base for permanent links |
+| `R2_ENDPOINT_URL` | optional — point at **any S3-compatible service** (MinIO, Backblaze B2, Garage, local moto) |
 
 5. Redeploy → uploads now persist in R2. ✅ Check: upload a file in the app,
    open the bucket in the dashboard — `uploads/<user>/<id>_<name>` appears.

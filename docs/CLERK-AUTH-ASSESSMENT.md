@@ -43,8 +43,13 @@ when the app is one database-paste away from being live.
 ## Recommended phased path
 
 - **Phase 0 (now):** launch on built-in auth. Zero rework risk.
-- **Phase 1 (after launch):** add Clerk as *federated login alongside* our
-  accounts (backend verifies Clerk JWT via JWKS; first Clerk sign-in links to
-  existing email account or provisions a new user). No user-data migration.
+- **Phase 1 (shipped, v1.6.0):** the federation seam **exists** already —
+  `POST /api/v1/auth/clerk` verifies Clerk session JWTs (RS256 + JWKS, issuer
+  checks, key-rotation refresh), links by email (find-or-provision, signup
+  gates respected), and mints our standard token. Zero schema changes.
+  To light it up: set `CLERK_ISSUER` (+`CLERK_SECRET_KEY` when tokens carry no
+  email claim) on the backend, add a **Continue with Clerk** button to the
+  login page (needs `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` + `@clerk/nextjs`).
+  6 seam tests cover provision/link/forgery/expiry/gates/disabled.
 - **Phase 2 (only if it wins):** migrate sessions fully, retire password UI,
   keep our backend as the source of truth for plans/deletion.

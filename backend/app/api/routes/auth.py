@@ -5,9 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.security import create_access_token, hash_password, verify_password
 from ...db.models import User
 from ...db.session import get_db
-from ...schemas import (AccountDeleteRequest, LoginRequest, PreferencesUpdate,
+from ...schemas import (AccountDeleteRequest, ClerkAuthRequest, LoginRequest, PreferencesUpdate,
                          RegisterRequest, TokenResponse)
 from ...services import account as account_svc
+from ...services import clerk_auth
 from ...services.platform_settings import app_password_hash, signup_open
 from ..deps import get_current_user, is_effective_admin
 
@@ -49,6 +50,46 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     )
     db.add(user)
     await db.commit()
+    return TokenResponse(access_token=create_access_token(user.id), user=user_out(user))
+
+
+@router.post("/clerk", response_model=TokenResponse)
+async def clerk_login(req: ClerkAuthRequest, db: AsyncSession = Depends(get_db)):
+    """🔐 Clerk federation (Phase 1): verify a Clerk session JWT, link the
+    account by email (find-or-provision), and mint our standard token.
+    Docs: docs/CLERK-AUTH-ASSESSMENT.md — disabled until CLERK_ISSUER is set.
+    """
+    if not clerk_auth.clerk_enabled():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Clerk sign-in is not enabled on this deployment")
+    import secrets as _secrets
+
+    try:
+        claims = await clerk_auth.verify_clerk_token(req.token)
+        email = await clerk_auth.resolve_email(claims)
+    except clerk_auth.ClerkTokenError as e:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Clerk token rejected: {e}")
+    if not email:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Clerk account has no reachable email address")
+
+    user = await db.scalar(select(User).where(User.email == email))
+    if user is None:
+        # New federated account — the same owner signup gates apply as /register.
+        if not await signup_open(db):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Signups are closed on this deployment — ask an owner for a team invite link.",
+            )
+        if await app_password_hash(db):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "This deployment requires an access code — sign up with email instead."
+            )
+        user = User(
+            email=email,
+            hashed_password=hash_password(_secrets.token_urlsafe(32)),  # unusable; federated login only
+            display_name=email.split("@")[0],
+        )
+        db.add(user)
+        await db.commit()
     return TokenResponse(access_token=create_access_token(user.id), user=user_out(user))
 
 
