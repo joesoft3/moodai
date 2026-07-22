@@ -55,55 +55,70 @@ class LLMService:
             "xai": (settings.XAI_BASE_URL, settings.XAI_API_KEY),
             "gemini": (settings.GEMINI_BASE_URL, settings.GEMINI_API_KEY),
             "openai": (settings.OPENAI_BASE_URL, settings.OPENAI_API_KEY),
+            "arena": (settings.ARENA_AI_BASE_URL, settings.ARENA_AI_API_KEY),
         }
 
     def provider_available(self, key: str) -> bool:
         spec = self._provider_specs().get(key)
         return bool(spec and spec[1])
 
-    def _failover(self, provider: str | None, model: str) -> tuple[str | None, str]:
-        """Stand-in provider while xAI is down/unfunded (LLM_FALLBACK_*).
+    def _arena_ready(self) -> bool:
+        return bool(settings.ARENA_AI_API_KEY and settings.ARENA_AI_MODEL)
 
-        Static swap at the seam: any xAI-bound call is rerouted to the fallback
-        provider. Class-aware model mapping: picker fast/mini tiers stay on the
-        cheap fast bucket (LLM_FALLBACK_MODEL); flagship/chat/coding/deep-search
-        go to the pro bucket (LLM_FALLBACK_MODEL_PRO) for better answers — and the
-        two buckets have INDEPENDENT rate-limit pools. Unset the envs and the
-        primary stack resumes with zero code changes.
+    def _failover(self, provider: str | None, model: str) -> tuple[str | None, str]:
+        """Brain cascade at the seam (any xAI-bound call): 🥇 Arena.ai when its
+        envs are set → 🥈 the LLM_FALLBACK_* stand-in stack → xAI itself.
+        Both tiers are class-aware: picker fast/mini models stay on the cheap
+        fast bucket; flagship/chat/coding/deep-search get the pro bucket.
+        Unset the envs and the primary xAI stack resumes with zero code changes.
         """
+        if provider not in (None, "xai"):
+            return provider, model
+        fastish = any(k in model.lower() for k in ("fast", "mini"))
+        if self._arena_ready():
+            fast_m = settings.ARENA_AI_MODEL_FAST or settings.ARENA_AI_MODEL
+            return "arena", (fast_m if fastish else settings.ARENA_AI_MODEL)
         fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
-        if fb and provider in (None, "xai") and settings.LLM_FALLBACK_MODEL and self.provider_available(fb):
-            fastish = any(k in model.lower() for k in ("fast", "mini"))
+        if fb and settings.LLM_FALLBACK_MODEL and self.provider_available(fb):
             pro = settings.LLM_FALLBACK_MODEL_PRO or settings.LLM_FALLBACK_MODEL
             return fb, (settings.LLM_FALLBACK_MODEL if fastish else pro)
         return provider, model
 
-    def _fallback_sibling(self, provider: str | None, model: str) -> str | None:
-        """429 rescue inside the stand-in stack: swap to the sibling model bucket
-        (flash ↔ pro). Separate rate-limit pools, so one bucket being saturated
-        rarely means both are. Only applies to the configured fallback provider."""
-        fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
-        if not settings.LLM_FALLBACK_429_SWAP or not fb or provider != fb:
+    def _rescue_target(self, provider: str | None, model: str) -> tuple[str, str] | None:
+        """429 rescue as a (provider, model) pair:
+          • Arena brain 429 → cascade to the stand-in stack's SAME-CLASS bucket
+            (class is derived by slot: arena-fast → fallback-fast, else fallback-pro)
+          • stand-in provider 429 → swap flash↔pro internally (separate quotas)
+        Returns None when no rescue exists (error then surfaces to the client)."""
+        if provider == "arena":
+            fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
+            if fb and settings.LLM_FALLBACK_MODEL and self.provider_available(fb):
+                was_fast = bool(settings.ARENA_AI_MODEL_FAST) and model == settings.ARENA_AI_MODEL_FAST
+                pro = settings.LLM_FALLBACK_MODEL_PRO or settings.LLM_FALLBACK_MODEL
+                return fb, (settings.LLM_FALLBACK_MODEL if was_fast else pro)
             return None
-        fast, pro = settings.LLM_FALLBACK_MODEL, settings.LLM_FALLBACK_MODEL_PRO
-        if model == fast and pro:
-            return pro
-        if model == pro and fast and pro:
-            return fast
+        fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
+        if settings.LLM_FALLBACK_429_SWAP and fb and provider == fb:
+            fast, pro = settings.LLM_FALLBACK_MODEL, settings.LLM_FALLBACK_MODEL_PRO
+            if model == fast and pro:
+                return fb, pro
+            if model == pro and fast and pro:
+                return fb, fast
         return None
 
     async def _call_with_429_swap(self, provider: str | None, model: str, call):
-        """await call(model); if the stand-in stack 429s, retry ONCE on the sibling
-        bucket — instantly, no server-guided backoff sleep (the fallback client is
-        built with max_retries=0 precisely so the swap decides latency, not the SDK)."""
+        """await call(provider, model); on a 429 retry ONCE via _rescue_target —
+        instantly, no server-guided backoff sleep (both the stand-in client and
+        the Arena client are built with max_retries=0 so the rescue decides
+        latency, not the SDK)."""
         try:
-            return await call(model)
+            return await call(provider, model)
         except RateLimitError:
-            sib = self._fallback_sibling(provider, model)
-            if not sib:
+            tgt = self._rescue_target(provider, model)
+            if not tgt:
                 raise
-            log.warning("fallback 429 on %s → swapping to sibling bucket %s", model, sib)
-            return await call(sib)
+            log.warning("429 on %s/%s → rescue via %s/%s", provider, model, tgt[0], tgt[1])
+            return await call(*tgt)
 
     def client_for(self, provider: str | None) -> AsyncOpenAI:
         key = provider or "xai"
@@ -111,11 +126,10 @@ class LLMService:
             base_url, api_key = self._provider_specs()[key]
             if not api_key:
                 raise LLMNotConfigured(f"Provider '{key}' has no API key set.")
-            # The stand-in stack rejects 429s immediately (max_retries=0): our
-            # _call_with_429_swap then rescues on the sibling bucket in ~0s instead
-            # of the SDK sleeping through server-guided retryDelays (measured: a
-            # naive retry turned a "Hello" into a 29.5s stall).
-            no_retry = key == (settings.LLM_FALLBACK_PROVIDER or "").strip()
+            # The stand-in stack + Arena seam reject 429s immediately (max_retries=0):
+            # _rescue_target then recovers in ~0s instead of the SDK sleeping through
+            # server-guided retryDelays (measured: a naive retry = 29.5s for "Hello").
+            no_retry = key in {"arena", (settings.LLM_FALLBACK_PROVIDER or "").strip()}
             self._clients[key] = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0 if no_retry else 2)
         return self._clients[key]
 
@@ -159,7 +173,7 @@ class LLMService:
             stream = await self._call_with_429_swap(
                 provider,
                 model,
-                lambda m: self.client_for(provider).chat.completions.create(
+                lambda p, m: self.client_for(p).chat.completions.create(
                     model=m,
                     messages=messages,
                     stream=True,
@@ -213,7 +227,7 @@ class LLMService:
             resp = await self._call_with_429_swap(
                 provider,
                 m,
-                lambda mm: self.client_for(provider).chat.completions.create(
+                lambda p, mm: self.client_for(p).chat.completions.create(
                     model=mm,
                     messages=messages,
                     temperature=temperature,
@@ -246,7 +260,7 @@ class LLMService:
             resp = await self._call_with_429_swap(
                 provider,
                 m,
-                lambda mm: self.client_for(provider).chat.completions.create(
+                lambda p, mm: self.client_for(p).chat.completions.create(
                     model=mm, messages=messages, tools=tools, tool_choice="auto", temperature=0.2
                 ),
             )
@@ -275,7 +289,7 @@ class LLMService:
             resp = await self._call_with_429_swap(
                 provider,
                 m,
-                lambda mm: self.client_for(provider).chat.completions.create(
+                lambda p, mm: self.client_for(p).chat.completions.create(
                     model=mm, messages=messages, temperature=temperature, **extra
                 ),
             )

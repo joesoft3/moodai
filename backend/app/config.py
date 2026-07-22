@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     # vision analysis, titles, memory) are answered by the stand-in provider
     # instead. Perfect for "xAI credits not purchased yet" or provider outages.
     # Unset both and the Grok primary stack resumes instantly.
+    # 🥇 Arena.ai first-brain seam (dormant until Arena.ai opens its developer API).
+    # Set key + model and Arena pre-empts every xAI-bound call; 429s cascade down
+    # to the LLM_FALLBACK_* stand-in stack automatically. All off by default.
+    ARENA_AI_API_KEY: str = ""
+    ARENA_AI_BASE_URL: str = "https://api.arena.ai/v1"  # placeholder — no public endpoint exists yet
+    ARENA_AI_MODEL: str = ""                             # flagship brain id; REQUIRED for the seam to engage
+    ARENA_AI_MODEL_FAST: str = ""                        # optional fast tier; falls back to ARENA_AI_MODEL
     LLM_FALLBACK_PROVIDER: str = ""   # e.g. "gemini" (needs that provider's API key set)
     LLM_FALLBACK_MODEL: str = ""      # fast-tier fallback model, e.g. "gemini-2.5-flash" (picker fast/mini tiers land here)
     LLM_FALLBACK_MODEL_PRO: str = "gemini-2.5-pro"  # flagship-class fallback model (default chat/coding/deep-search land here)
