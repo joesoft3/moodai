@@ -493,6 +493,21 @@ async def _persist_generated_media(db: AsyncSession, user: User, url: str, expec
             head, _, b64 = url.partition(",")
             mime = (head[5:].split(";")[0] or f"{expect}/png").strip()
             data = base64.b64decode(b64)
+        elif "/api/v1/media/files/" in url:
+            # Self-hosted composer output (reel/pollinations clips): read straight
+            # from this machine's MEDIA_DIR — a loopback GET can land on a SIBLING
+            # Fly machine that never wrote the file (measured live: 404 → hotlink,
+            # dead link after the 24h janitor). Local read is always correct.
+            import os
+            import re as _re
+
+            name = url.rsplit("/", 1)[-1]
+            if not _re.fullmatch(r"[A-Za-z0-9._-]+", name or ""):
+                raise ValueError("bad media name")
+            local = os.path.join(settings.MEDIA_DIR, name)
+            with open(local, "rb") as fh:
+                data = fh.read()
+            mime = "video/mp4" if name.endswith(".mp4") else ("image/jpeg" if name.endswith((".jpg", ".jpeg")) else f"{expect}/mp4")
         else:
             async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, read=120.0), follow_redirects=True) as client:
                 r = await client.get(url)

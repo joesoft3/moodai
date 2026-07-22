@@ -282,3 +282,77 @@ def test_kill_switch_off(env, monkeypatch):
             assert not any(e["type"] == "media" for e in evs)
 
     run(_t())
+
+
+# ------------------------------------------------- self-hosted media persist
+def test_persist_video_reads_self_hosted_from_disk(monkeypatch, tmp_path):
+    """Sibling-machine race regression: /api/v1/media/files/*.mp4 must be read
+    from local MEDIA_DIR, not via loopback HTTP that can 404 on a peer."""
+    import asyncio as _a
+
+    from app.api.routes import chat as chatmod
+    from app.services import storage
+
+    clip = tmp_path / "reel-deadbeef.mp4"
+    clip.write_bytes(b"\x00\x00\x00\x18ftypmp42CLIPBYTES")
+    monkeypatch.setattr(settings, "MEDIA_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "IMAGE_PERSIST", True)
+
+    class _DB:
+        def __init__(self):
+            self.rows = []
+            self.committed = 0
+
+        def add(self, r):
+            self.rows.append(r)
+
+        async def commit(self):
+            self.committed += 1
+
+    class _User:
+        id = "u1"
+
+    async def _put(user_id, filename, data):
+        assert data.startswith(b"\x00\x00\x00\x18ftypmp42")
+        return f"r2:gallery/{filename}"
+
+    async def _presign(marker, seconds=None):
+        return "https://signed.example/clip.mp4"
+
+    def _no_http(**kw):  # must NEVER loopback-fetch self-hosted files
+        raise AssertionError("loopback GET attempted for self-hosted media")
+
+    monkeypatch.setattr(storage, "put_upload", _put)
+    monkeypatch.setattr(storage, "presigned_url", _presign)
+    monkeypatch.setattr(storage, "is_remote", lambda marker: marker.startswith("r2:"))
+    monkeypatch.setattr(chatmod.httpx, "AsyncClient", _no_http)
+
+    url, stored = _a.run(
+        chatmod._persist_generated_media(_DB(), _User(), "https://moodai-api.fly.dev/api/v1/media/files/reel-deadbeef.mp4", "video")
+    )
+    assert stored == "r2" and url == "https://signed.example/clip.mp4"
+
+
+def test_persist_video_sibling_404_no_longer_possible(monkeypatch, tmp_path):
+    """The exact live failure shape: file missing here → clean hotlink fallback."""
+    import asyncio as _a
+
+    from app.api.routes import chat as chatmod
+
+    monkeypatch.setattr(settings, "MEDIA_DIR", str(tmp_path))  # empty — file landed on a sibling
+    monkeypatch.setattr(settings, "IMAGE_PERSIST", True)
+
+    class _DB:
+        def add(self, r):
+            pass
+
+        async def commit(self):
+            pass
+
+    class _User:
+        id = "u1"
+
+    url, stored = _a.run(
+        chatmod._persist_generated_media(_DB(), _User(), "https://moodai-api.fly.dev/api/v1/media/files/reel-gone.mp4", "video")
+    )
+    assert stored == "hotlink" and url.endswith("reel-gone.mp4")
