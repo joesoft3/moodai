@@ -208,6 +208,9 @@ Return STRICT JSON only, no prose:
 {"memories":[{"fact":"...","category":"preference|profile|project|interest|other"}]}
 
 Rules:
+- Facts must come from EXPLICIT USER statements ONLY. The ASSISTANT's examples, riffs
+  or opinions are NEVER user facts (live drill: assistant joked "hard to beat jollof"
+  and it was wrongly stored as the user's favourite food).
 - Only stable facts useful across many future chats (identity, preferences, projects, constraints).
 - Skip small talk, transient questions, secrets, or one-off data.
 - Max 3 items. If nothing is worth remembering, return {"memories":[]}."""

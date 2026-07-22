@@ -110,17 +110,33 @@ async def get_or_create_conversation(
 _breaks: dict[str, float] = {}
 
 
+def _ctx_budget() -> float:
+    """Budget for a context source. pgvector lives in the SAME Postgres the chat
+    already can't run without (same-fate store) — a tight budget there only penalizes
+    Neon compute wake-from-idle (measured live: first post-wake query ≈ 4-8s → false
+    breaker trips). External Qdrant keeps the original tight budget (it's truly optional)."""
+    budget = settings.CONTEXT_BUDGET_S
+    try:
+        from ...services.vectorstore import pgvector_active
+
+        if pgvector_active():
+            return max(budget, 8.0)
+    except Exception:
+        pass
+    return budget
+
+
 async def _guarded(factory, label: str, breaker: str | None = None):
     """Best-effort context source with a HARD time budget + circuit breaker.
 
     `factory` is a zero-arg callable returning the coroutine (so an open breaker
-    never even creates it). Any source that fails or exceeds CONTEXT_BUDGET_S is
+    never even creates it). Any source that fails or exceeds the budget is
     skipped; if `breaker` is given it opens for CONTEXT_BREAKER_S on failure."""
     now = time.monotonic()
     if breaker and _breaks.get(breaker, 0) > now:
         return None  # circuit open — known-down source, zero cost
     try:
-        return await asyncio.wait_for(factory(), timeout=settings.CONTEXT_BUDGET_S)
+        return await asyncio.wait_for(factory(), timeout=_ctx_budget())
     except Exception as e:
         if breaker:
             _breaks[breaker] = now + settings.CONTEXT_BREAKER_S

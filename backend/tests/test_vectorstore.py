@@ -211,6 +211,21 @@ def test_ensure_not_marked_after_hard_failure(monkeypatch):
     assert vs._ensured is False  # next request gets a fresh chance
 
 
+# ---------------------------- same-fate budget floor ----------------------------
+
+def test_ctx_budget_floor_for_pgvector(monkeypatch):
+    """Live lesson: the 4s external-Qdrant budget false-trips on Neon wake-from-idle
+    (~4-8s first query); pgvector shares fate with the main DB, so floor = 8s."""
+    from app.api.routes import chat as chat_route
+
+    monkeypatch.setattr(settings, "VECTOR_BACKEND", "auto")
+    monkeypatch.setattr(settings, "QDRANT_URL", "http://localhost:6333")
+    monkeypatch.setattr(settings, "CONTEXT_BUDGET_S", 4.0)
+    assert chat_route._ctx_budget() == 8.0
+    monkeypatch.setattr(settings, "VECTOR_BACKEND", "qdrant")
+    assert chat_route._ctx_budget() == 4.0
+
+
 # ---------------------------- Gemini embeddings ----------------------------
 
 class _Resp:
