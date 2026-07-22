@@ -39,13 +39,17 @@ async def lifespan(app: FastAPI):
     await bootstrap_admin()             # env-defined owner account (create/promote)
     await seed_app_password_from_env()  # optional sign-up access code seed
     watchdog = asyncio.create_task(expiry_watchdog())  # keeps registrar expiry dates fresh
+    from .services.keepwarm import start_keep_warm, stop_keep_warm
+
+    start_keep_warm()  # 💓 keep the Neon compute hot (idle wake-ups measured at 4-15s)
     try:
         yield
     finally:
         watchdog.cancel()
+        await stop_keep_warm()
 
 
-app = FastAPI(title="Mood AI API", version="1.9.4", lifespan=lifespan)
+app = FastAPI(title="Mood AI API", version="1.9.5", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

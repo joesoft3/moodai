@@ -57,6 +57,7 @@ class LLMService:
             "openai": (settings.OPENAI_BASE_URL, settings.OPENAI_API_KEY),
             "arena": (settings.ARENA_AI_BASE_URL, settings.ARENA_AI_API_KEY),
             "freetheai": (settings.FREETHEAI_BASE_URL, settings.FREETHEAI_API_KEY),
+            "extrabrain": (settings.EXTRA_BRAIN_BASE_URL, settings.EXTRA_BRAIN_API_KEY),
         }
 
     def provider_available(self, key: str) -> bool:
@@ -94,6 +95,23 @@ class LLMService:
                 res.append(t)
         return res
 
+    def _extra_ready(self) -> bool:
+        return bool(settings.EXTRA_BRAIN_API_KEY and settings.EXTRA_BRAIN_MODEL)
+
+    def _extra_buckets(self, class_fast: bool) -> list[tuple[str, str]]:
+        """Generic OpenAI-compatible extra-brain buckets (Groq/Cerebras/Mistral/
+        OpenRouter/CF Workers AI), same-class first, de-duplicated."""
+        if not self._extra_ready():
+            return []
+        fast, pro = (settings.EXTRA_BRAIN_MODEL_FAST or settings.EXTRA_BRAIN_MODEL), settings.EXTRA_BRAIN_MODEL
+        out = [("extrabrain", fast), ("extrabrain", pro)] if class_fast else [("extrabrain", pro), ("extrabrain", fast)]
+        seen, res = set(), []
+        for t in out:
+            if t[1] not in seen:
+                seen.add(t[1])
+                res.append(t)
+        return res
+
     def _failover(self, provider: str | None, model: str) -> tuple[str | None, str]:
         """First brain at the seam (any xAI-bound call): 🥇 Arena.ai when set →
         🥈 LLM_FALLBACK_* stand-in stack → 🥉 FreeTheAi extra capacity → xAI itself.
@@ -111,6 +129,9 @@ class LLMService:
         if self._freeai_ready():
             fast_m = settings.FREETHEAI_MODEL_FAST or settings.FREETHEAI_MODEL
             return "freetheai", (fast_m if fastish else settings.FREETHEAI_MODEL)
+        if self._extra_ready():
+            fast_m = settings.EXTRA_BRAIN_MODEL_FAST or settings.EXTRA_BRAIN_MODEL
+            return "extrabrain", (fast_m if fastish else settings.EXTRA_BRAIN_MODEL)
         return provider, model
 
     def _rescue_chain(self, provider: str | None, model: str) -> list[tuple[str, str]]:
@@ -119,7 +140,7 @@ class LLMService:
         Each tier is visited exactly once, instantly (no SDK backoff sleeps)."""
         if provider == "arena":
             class_fast = bool(settings.ARENA_AI_MODEL_FAST) and model == settings.ARENA_AI_MODEL_FAST
-            return self._fb_buckets(class_fast) + self._freeai_buckets(class_fast)
+            return self._fb_buckets(class_fast) + self._freeai_buckets(class_fast) + self._extra_buckets(class_fast)
         fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
         if provider and provider == fb:
             class_fast = model == settings.LLM_FALLBACK_MODEL
@@ -128,10 +149,13 @@ class LLMService:
                 other = settings.LLM_FALLBACK_MODEL_PRO if class_fast else settings.LLM_FALLBACK_MODEL
                 if other and other != model:
                     chain.append((fb, other))
-            return chain + self._freeai_buckets(class_fast)
+            return chain + self._freeai_buckets(class_fast) + self._extra_buckets(class_fast)
         if provider == "freetheai":
             class_fast = model == (settings.FREETHEAI_MODEL_FAST or settings.FREETHEAI_MODEL)
-            return [t for t in self._freeai_buckets(class_fast) if t[1] != model]
+            return [t for t in self._freeai_buckets(class_fast) if t[1] != model] + self._extra_buckets(class_fast)
+        if provider == "extrabrain":
+            class_fast = model == (settings.EXTRA_BRAIN_MODEL_FAST or settings.EXTRA_BRAIN_MODEL)
+            return [t for t in self._extra_buckets(class_fast) if t[1] != model]
         return []
 
     async def _call_with_chain(self, provider: str | None, model: str, call):
@@ -157,7 +181,7 @@ class LLMService:
             # The stand-in stack + Arena seam reject 429s immediately (max_retries=0):
             # _rescue_chain then recovers in ~0s instead of the SDK sleeping through
             # server-guided retryDelays (measured: a naive retry = 29.5s for "Hello").
-            no_retry = key in {"arena", "freetheai", (settings.LLM_FALLBACK_PROVIDER or "").strip()}
+            no_retry = key in {"arena", "freetheai", "extrabrain", (settings.LLM_FALLBACK_PROVIDER or "").strip()}
             self._clients[key] = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0 if no_retry else 2)
         return self._clients[key]
 

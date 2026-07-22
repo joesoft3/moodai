@@ -93,6 +93,15 @@ class Settings(BaseSettings):
     FREETHEAI_BASE_URL: str = "https://api.freetheai.xyz/v1"
     FREETHEAI_MODEL: str = ""        # flagship-class alias, e.g. "opc/deepseek-v4-flash-free"
     FREETHEAI_MODEL_FAST: str = ""   # optional fast tier; falls back to FREETHEAI_MODEL
+    # 🧬 Generic extra-brain seam — ANY OpenAI-compatible free tier joins the rescue
+    # cascade with ZERO code changes: Groq (console.groq.com → instant key), Cerebras,
+    # Mistral La Plateforme, OpenRouter (":free" models), or Cloudflare Workers AI
+    # (base https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1). Dormant until
+    # EXTRA_BRAIN_API_KEY + EXTRA_BRAIN_MODEL are set.
+    EXTRA_BRAIN_API_KEY: str = ""
+    EXTRA_BRAIN_BASE_URL: str = "https://api.groq.com/openai/v1"
+    EXTRA_BRAIN_MODEL: str = ""        # flagship-class, e.g. "llama-3.3-70b-versatile"
+    EXTRA_BRAIN_MODEL_FAST: str = ""   # optional fast tier; falls back to EXTRA_BRAIN_MODEL
     LLM_FALLBACK_PROVIDER: str = ""   # e.g. "gemini" (needs that provider's API key set)
     LLM_FALLBACK_MODEL: str = ""      # fast-tier fallback model, e.g. "gemini-2.5-flash" (picker fast/mini tiers land here)
     LLM_FALLBACK_MODEL_PRO: str = "gemini-2.5-pro"  # flagship-class fallback model (default chat/coding/deep-search land here)
@@ -237,6 +246,11 @@ class Settings(BaseSettings):
 
     # Ops
     AUTO_CREATE_TABLES: bool = True  # dev convenience; prod: false + `alembic upgrade head`
+    # 💓 DB keep-warm — serverless Postgres (Neon) idles to sleep and the next request
+    # pays a 4-15s wake (measured live). A SELECT 1 every few minutes from the always-on
+    # Fly machines keeps the shared endpoint hot for BOTH hosts. False = allow idling.
+    DB_KEEP_WARM: bool = True
+    DB_KEEP_WARM_S: float = 240.0
     OTEL_EXPORTER_OTLP_ENDPOINT: str = ""  # e.g. http://jaeger:4318 to enable tracing
 
     @property
