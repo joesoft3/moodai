@@ -113,6 +113,12 @@ class Settings(BaseSettings):
     VECTOR_BACKEND: str = "auto"        # auto | pgvector | qdrant
     EMBED_PROVIDER: str = "auto"        # auto | gemini | fastembed | openai — auto prefers Gemini (free, no 90MB ONNX download)
     GEMINI_EMBED_MODEL: str = "gemini-embedding-001"  # dims pinned to EMBED_VECTOR_SIZE (table stays consistent)
+    GEMINI_EMBED_API_KEY: str = ""      # optional SECOND Google key (separate daily quota) for embeddings
+    # Any OpenAI-compatible embeddings endpoint as the middle rescue tier (before local
+    # ONNX) — e.g. Cloudflare Workers AI @cf/baai/bge-small-en-v1.5 (384-dim, free).
+    # Falls back to OPENAI_API_KEY / OPENAI_BASE_URL when unset.
+    EMBED_API_KEY: str = ""
+    EMBED_API_BASE_URL: str = ""
     QUOTA_ECONOMY: bool = False         # True = pause fact-extraction + title prettifier (daily-budget shield for tiny keys)
 
     # Durable file storage — local disk by default; Cloudflare R2 (S3-compatible,

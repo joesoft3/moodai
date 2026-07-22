@@ -269,6 +269,7 @@ class _FakeHTTP:
     def __init__(self, script):
         self.script = list(script)
         self.posts = []
+        self.calls = []
 
     async def __aenter__(self):
         return self
@@ -278,6 +279,7 @@ class _FakeHTTP:
 
     async def post(self, url, params=None, json=None):
         self.posts.append(url)
+        self.calls.append({"method": "post", "url": url, "params": params or {}, "json": json})
         return self.script.pop(0)
 
     async def get(self, url):
@@ -315,6 +317,56 @@ def test_embed_auto_prefers_gemini(monkeypatch):
     monkeypatch.setattr(memory, "TextEmbedding", None)
     out = run(memory.embed(["hello"]))
     assert len(out) == 1 and http.posts  # gemini served it
+
+
+def test_gemini_embed_prefers_dedicated_second_key(monkeypatch):
+    http = _FakeHTTP([_Resp(200, {"embeddings": [_emb()]})])
+    monkeypatch.setattr(memory.httpx, "AsyncClient", lambda **kw: http)
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "main-chat-key")
+    monkeypatch.setattr(settings, "GEMINI_EMBED_API_KEY", "second-quota-key")
+    run(memory._embed_via_gemini(["q"]))
+    assert http.calls[0]["params"]["key"] == "second-quota-key"
+
+
+def test_embed_middle_tier_beats_local_onnx(monkeypatch):
+    """Gemini burned → OpenAI-compatible tier serves BEFORE the slow local fastembed."""
+    http = _FakeHTTP(
+        [
+            _Resp(429, {"error": "quota"}),                       # gemini batch
+            _Resp(429, {"error": "quota"}),                       # gemini single
+            _Resp(200, {"data": [{"index": 0, "embedding": [0.5] * 384}]}),  # middle tier
+        ]
+    )
+    monkeypatch.setattr(memory.httpx, "AsyncClient", lambda **kw: http)
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "burned")
+    monkeypatch.setattr(settings, "GEMINI_EMBED_API_KEY", "")
+    monkeypatch.setattr(settings, "EMBED_API_KEY", "rescue-key")
+    monkeypatch.setattr(settings, "EMBED_API_BASE_URL", "https://api.cloudflare.com/client/v4/accounts/x/ai/v1")
+    monkeypatch.setattr(settings, "EMBED_API_MODEL", "@cf/baai/bge-small-en-v1.5")
+    monkeypatch.setattr(settings, "EMBED_PROVIDER", "auto")
+    monkeypatch.setattr(memory, "TextEmbedding", object())  # installed — must NOT be used
+
+    async def _boom(*a, **k):
+        raise AssertionError("fastembed must not be reached when the API tier works")
+
+    monkeypatch.setattr(memory, "_embed_sync", _boom)
+    out = run(memory.embed(["on a burn day"]))
+    assert out == [[0.5] * 384]
+    assert "accounts/x" in http.calls[-1]["url"] or http.calls[-1]["url"].startswith("/embeddings")
+    assert http.calls[-1]["json"]["dimensions"] == 384
+
+
+def test_embed_api_falls_back_to_openai_pair(monkeypatch):
+    http = _FakeHTTP([_Resp(200, {"data": [{"index": 0, "embedding": [0.1] * 384}]})])
+    monkeypatch.setattr(memory.httpx, "AsyncClient", lambda **kw: http)
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(settings, "GEMINI_EMBED_API_KEY", "")
+    monkeypatch.setattr(settings, "EMBED_API_KEY", "")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "voice-key")
+    monkeypatch.setattr(settings, "EMBED_PROVIDER", "auto")
+    monkeypatch.setattr(memory, "TextEmbedding", None)
+    out = run(memory.embed(["legacy path"]))
+    assert out == [[0.1] * 384]
 
 
 def test_embed_raises_when_no_backend(monkeypatch):

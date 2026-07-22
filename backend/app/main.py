@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
         await stop_keep_warm()
 
 
-app = FastAPI(title="Mood AI API", version="1.9.5", lifespan=lifespan)
+app = FastAPI(title="Mood AI API", version="1.9.6", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

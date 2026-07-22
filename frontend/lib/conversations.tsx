@@ -59,18 +59,6 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
     void refresh();
   }, [refresh, pathname]);
 
-  // Any feature can ping "conversations changed" (idle home-reset, share/join
-  // flows, background jobs) → debounced refresh so ☰ history is always current
-  useEffect(() => {
-    let t: ReturnType<typeof setTimeout> | null = null;
-    const h = () => {
-      if (t) clearTimeout(t);
-      t = setTimeout(() => void refresh(), 400);
-    };
-    window.addEventListener("mood:conversations-changed", h);
-    return () => window.removeEventListener("mood:conversations-changed", h);
-  }, [refresh]);
-
   const remove = useCallback(async (id: string) => {
     setConvs((c) => c.filter((x) => x.id !== id));
     setActiveIdState((curr) => {

@@ -56,8 +56,6 @@ class LLMService:
             "gemini": (settings.GEMINI_BASE_URL, settings.GEMINI_API_KEY),
             "openai": (settings.OPENAI_BASE_URL, settings.OPENAI_API_KEY),
             "arena": (settings.ARENA_AI_BASE_URL, settings.ARENA_AI_API_KEY),
-            "freetheai": (settings.FREETHEAI_BASE_URL, settings.FREETHEAI_API_KEY),
-            "extrabrain": (settings.EXTRA_BRAIN_BASE_URL, settings.EXTRA_BRAIN_API_KEY),
         }
 
     def provider_available(self, key: str) -> bool:
@@ -67,110 +65,60 @@ class LLMService:
     def _arena_ready(self) -> bool:
         return bool(settings.ARENA_AI_API_KEY and settings.ARENA_AI_MODEL)
 
-    def _fb_ready(self) -> bool:
-        fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
-        return bool(fb and settings.LLM_FALLBACK_MODEL and self.provider_available(fb))
-
-    def _fb_buckets(self, class_fast: bool) -> list[tuple[str, str]]:
-        """Stand-in stack buckets, same-class first then sibling (separate quotas)."""
-        if not self._fb_ready():
-            return []
-        fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
-        fast, pro = settings.LLM_FALLBACK_MODEL, (settings.LLM_FALLBACK_MODEL_PRO or settings.LLM_FALLBACK_MODEL)
-        return [(fb, fast), (fb, pro)] if class_fast else [(fb, pro), (fb, fast)]
-
-    def _freeai_ready(self) -> bool:
-        return bool(settings.FREETHEAI_API_KEY and settings.FREETHEAI_MODEL)
-
-    def _freeai_buckets(self, class_fast: bool) -> list[tuple[str, str]]:
-        """FreeTheAi extra-capacity buckets, same-class first, de-duplicated."""
-        if not self._freeai_ready():
-            return []
-        fast, pro = (settings.FREETHEAI_MODEL_FAST or settings.FREETHEAI_MODEL), settings.FREETHEAI_MODEL
-        out = [("freetheai", fast), ("freetheai", pro)] if class_fast else [("freetheai", pro), ("freetheai", fast)]
-        seen, res = set(), []
-        for t in out:
-            if t[1] not in seen:
-                seen.add(t[1])
-                res.append(t)
-        return res
-
-    def _extra_ready(self) -> bool:
-        return bool(settings.EXTRA_BRAIN_API_KEY and settings.EXTRA_BRAIN_MODEL)
-
-    def _extra_buckets(self, class_fast: bool) -> list[tuple[str, str]]:
-        """Generic OpenAI-compatible extra-brain buckets (Groq/Cerebras/Mistral/
-        OpenRouter/CF Workers AI), same-class first, de-duplicated."""
-        if not self._extra_ready():
-            return []
-        fast, pro = (settings.EXTRA_BRAIN_MODEL_FAST or settings.EXTRA_BRAIN_MODEL), settings.EXTRA_BRAIN_MODEL
-        out = [("extrabrain", fast), ("extrabrain", pro)] if class_fast else [("extrabrain", pro), ("extrabrain", fast)]
-        seen, res = set(), []
-        for t in out:
-            if t[1] not in seen:
-                seen.add(t[1])
-                res.append(t)
-        return res
-
     def _failover(self, provider: str | None, model: str) -> tuple[str | None, str]:
-        """First brain at the seam (any xAI-bound call): 🥇 Arena.ai when set →
-        🥈 LLM_FALLBACK_* stand-in stack → 🥉 FreeTheAi extra capacity → xAI itself.
-        Class-aware at every tier: picker fast/mini → fast bucket, else pro bucket.
-        Unset the envs and the primary xAI stack resumes with zero code changes."""
+        """Brain cascade at the seam (any xAI-bound call): 🥇 Arena.ai when its
+        envs are set → 🥈 the LLM_FALLBACK_* stand-in stack → xAI itself.
+        Both tiers are class-aware: picker fast/mini models stay on the cheap
+        fast bucket; flagship/chat/coding/deep-search get the pro bucket.
+        Unset the envs and the primary xAI stack resumes with zero code changes.
+        """
         if provider not in (None, "xai"):
             return provider, model
         fastish = any(k in model.lower() for k in ("fast", "mini"))
         if self._arena_ready():
             fast_m = settings.ARENA_AI_MODEL_FAST or settings.ARENA_AI_MODEL
             return "arena", (fast_m if fastish else settings.ARENA_AI_MODEL)
-        if self._fb_ready():
-            fast, pro = settings.LLM_FALLBACK_MODEL, (settings.LLM_FALLBACK_MODEL_PRO or settings.LLM_FALLBACK_MODEL)
-            return (settings.LLM_FALLBACK_PROVIDER or "").strip(), (fast if fastish else pro)
-        if self._freeai_ready():
-            fast_m = settings.FREETHEAI_MODEL_FAST or settings.FREETHEAI_MODEL
-            return "freetheai", (fast_m if fastish else settings.FREETHEAI_MODEL)
-        if self._extra_ready():
-            fast_m = settings.EXTRA_BRAIN_MODEL_FAST or settings.EXTRA_BRAIN_MODEL
-            return "extrabrain", (fast_m if fastish else settings.EXTRA_BRAIN_MODEL)
+        fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
+        if fb and settings.LLM_FALLBACK_MODEL and self.provider_available(fb):
+            pro = settings.LLM_FALLBACK_MODEL_PRO or settings.LLM_FALLBACK_MODEL
+            return fb, (settings.LLM_FALLBACK_MODEL if fastish else pro)
         return provider, model
 
-    def _rescue_chain(self, provider: str | None, model: str) -> list[tuple[str, str]]:
-        """Ordered deeper tiers to walk on 429s — class is preserved across
-        providers (fast-class requests land on fast-class buckets at every tier).
-        Each tier is visited exactly once, instantly (no SDK backoff sleeps)."""
+    def _rescue_target(self, provider: str | None, model: str) -> tuple[str, str] | None:
+        """429 rescue as a (provider, model) pair:
+          • Arena brain 429 → cascade to the stand-in stack's SAME-CLASS bucket
+            (class is derived by slot: arena-fast → fallback-fast, else fallback-pro)
+          • stand-in provider 429 → swap flash↔pro internally (separate quotas)
+        Returns None when no rescue exists (error then surfaces to the client)."""
         if provider == "arena":
-            class_fast = bool(settings.ARENA_AI_MODEL_FAST) and model == settings.ARENA_AI_MODEL_FAST
-            return self._fb_buckets(class_fast) + self._freeai_buckets(class_fast) + self._extra_buckets(class_fast)
+            fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
+            if fb and settings.LLM_FALLBACK_MODEL and self.provider_available(fb):
+                was_fast = bool(settings.ARENA_AI_MODEL_FAST) and model == settings.ARENA_AI_MODEL_FAST
+                pro = settings.LLM_FALLBACK_MODEL_PRO or settings.LLM_FALLBACK_MODEL
+                return fb, (settings.LLM_FALLBACK_MODEL if was_fast else pro)
+            return None
         fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
-        if provider and provider == fb:
-            class_fast = model == settings.LLM_FALLBACK_MODEL
-            chain: list[tuple[str, str]] = []
-            if settings.LLM_FALLBACK_429_SWAP:  # sibling bucket swap (kill-switchable)
-                other = settings.LLM_FALLBACK_MODEL_PRO if class_fast else settings.LLM_FALLBACK_MODEL
-                if other and other != model:
-                    chain.append((fb, other))
-            return chain + self._freeai_buckets(class_fast) + self._extra_buckets(class_fast)
-        if provider == "freetheai":
-            class_fast = model == (settings.FREETHEAI_MODEL_FAST or settings.FREETHEAI_MODEL)
-            return [t for t in self._freeai_buckets(class_fast) if t[1] != model] + self._extra_buckets(class_fast)
-        if provider == "extrabrain":
-            class_fast = model == (settings.EXTRA_BRAIN_MODEL_FAST or settings.EXTRA_BRAIN_MODEL)
-            return [t for t in self._extra_buckets(class_fast) if t[1] != model]
-        return []
+        if settings.LLM_FALLBACK_429_SWAP and fb and provider == fb:
+            fast, pro = settings.LLM_FALLBACK_MODEL, settings.LLM_FALLBACK_MODEL_PRO
+            if model == fast and pro:
+                return fb, pro
+            if model == pro and fast and pro:
+                return fb, fast
+        return None
 
-    async def _call_with_chain(self, provider: str | None, model: str, call):
-        """Try (provider, model); on 429s walk _rescue_chain top-down until some
-        tier answers — the full brain cascade Arena → Gemini buckets → FreeTheAi.
-        Every tier is tried at most once; the last 429 surfaces to the route."""
-        tiers = [(provider, model), *self._rescue_chain(provider, model)]
-        for i, tgt in enumerate(tiers):
-            try:
-                return await call(*tgt)
-            except RateLimitError:
-                if i == len(tiers) - 1:
-                    raise
-                log.warning("429 on %s/%s → cascading to %s/%s", tgt[0], tgt[1], tiers[i + 1][0], tiers[i + 1][1])
-        raise RateLimitError  # pragma: no cover — unreachable
+    async def _call_with_429_swap(self, provider: str | None, model: str, call):
+        """await call(provider, model); on a 429 retry ONCE via _rescue_target —
+        instantly, no server-guided backoff sleep (both the stand-in client and
+        the Arena client are built with max_retries=0 so the rescue decides
+        latency, not the SDK)."""
+        try:
+            return await call(provider, model)
+        except RateLimitError:
+            tgt = self._rescue_target(provider, model)
+            if not tgt:
+                raise
+            log.warning("429 on %s/%s → rescue via %s/%s", provider, model, tgt[0], tgt[1])
+            return await call(*tgt)
 
     def client_for(self, provider: str | None) -> AsyncOpenAI:
         key = provider or "xai"
@@ -179,9 +127,9 @@ class LLMService:
             if not api_key:
                 raise LLMNotConfigured(f"Provider '{key}' has no API key set.")
             # The stand-in stack + Arena seam reject 429s immediately (max_retries=0):
-            # _rescue_chain then recovers in ~0s instead of the SDK sleeping through
+            # _rescue_target then recovers in ~0s instead of the SDK sleeping through
             # server-guided retryDelays (measured: a naive retry = 29.5s for "Hello").
-            no_retry = key in {"arena", "freetheai", "extrabrain", (settings.LLM_FALLBACK_PROVIDER or "").strip()}
+            no_retry = key in {"arena", (settings.LLM_FALLBACK_PROVIDER or "").strip()}
             self._clients[key] = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0 if no_retry else 2)
         return self._clients[key]
 
@@ -222,7 +170,7 @@ class LLMService:
             if think and provider in (None, "xai") and "mini" in model:
                 # only the mini family takes an explicit effort knob; grok-4 reasons by default
                 kwargs.setdefault("extra_body", {})["reasoning_effort"] = "high"
-            stream = await self._call_with_chain(
+            stream = await self._call_with_429_swap(
                 provider,
                 model,
                 lambda p, m: self.client_for(p).chat.completions.create(
@@ -276,7 +224,7 @@ class LLMService:
         LLM_COUNT.labels(model=m, kind="complete").inc()
         t0 = time.perf_counter()
         try:
-            resp = await self._call_with_chain(
+            resp = await self._call_with_429_swap(
                 provider,
                 m,
                 lambda p, mm: self.client_for(p).chat.completions.create(
@@ -309,7 +257,7 @@ class LLMService:
         LLM_COUNT.labels(model=m, kind="complete").inc()
         t0 = time.perf_counter()
         try:
-            resp = await self._call_with_chain(
+            resp = await self._call_with_429_swap(
                 provider,
                 m,
                 lambda p, mm: self.client_for(p).chat.completions.create(
@@ -338,7 +286,7 @@ class LLMService:
             extra: dict[str, Any] = {}
             if provider in (None, "xai"):
                 extra["extra_body"] = {"search_parameters": SEARCH_PARAMS}
-            resp = await self._call_with_chain(
+            resp = await self._call_with_429_swap(
                 provider,
                 m,
                 lambda p, mm: self.client_for(p).chat.completions.create(
@@ -356,19 +304,6 @@ class LLMService:
             LLM_LAT.labels(model=m, kind="search").observe(time.perf_counter() - t0)
 
     async def generate_image(self, prompt: str, **opts: Any) -> str | None:
-        # 🖼️ Free FLUX stand-in while xAI images are unfunded (xAI team credits = 0
-        # and every Gemini image model is quota-0 on this key — both verified live).
-        if (settings.IMAGE_FALLBACK_PROVIDER or "").strip() == "pollinations":
-            from urllib.parse import quote
-            import secrets
-
-            q = quote(prompt[:800])
-            seed = secrets.randbelow(10**9)
-            LLM_COUNT.labels(model=settings.POLLINATIONS_MODEL, kind="image").inc()
-            return (
-                f"{settings.POLLINATIONS_IMAGE_URL}/{q}"
-                f"?width=1024&height=1024&seed={seed}&model={settings.POLLINATIONS_MODEL}&nologo=true&enhance=true"
-            )
         m = settings.MODEL_IMAGE
         LLM_COUNT.labels(model=m, kind="image").inc()
         t0 = time.perf_counter()

@@ -84,20 +84,23 @@ def _embed_sync(texts: list[str]) -> list[list[float]]:
 
 
 async def _embed_via_api(texts: list[str]) -> list[list[float]]:
-    """OpenAI-compatible embeddings fallback (serverless slim images).
-
-    Asks for EMBED_VECTOR_SIZE dims so vectors match the Qdrant collection;
-    providers that don't support the dimensions param get a lean retry.
-    """
-    if not settings.OPENAI_API_KEY:
+    """OpenAI-compatible embeddings (middle rescue tier: any gateway with an
+    /embeddings route — Cloudflare Workers AI bge models, Voyage proxies, etc.).
+    EMBED_API_KEY / EMBED_API_BASE_URL override the voice-path OPENAI_* pair so
+    embeddings can live on a different provider entirely. Asks for
+    EMBED_VECTOR_SIZE dims so vectors match the pgvector table; providers that
+    don't support the dimensions param get a lean retry."""
+    key = settings.EMBED_API_KEY or settings.OPENAI_API_KEY
+    base = (settings.EMBED_API_BASE_URL or settings.OPENAI_BASE_URL or "").rstrip("/")
+    if not key:
         raise EmbeddingUnavailable(
-            "no local fastembed and no OPENAI_API_KEY configured for the embeddings API"
+            "no local fastembed and no EMBED_API_KEY/OPENAI_API_KEY configured for the embeddings API"
         )
-    headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}"}
+    headers = {"Authorization": f"Bearer {key}"}
     payload: dict = {"model": settings.EMBED_API_MODEL, "input": texts}
     if settings.EMBED_VECTOR_SIZE:
         payload["dimensions"] = settings.EMBED_VECTOR_SIZE
-    async with httpx.AsyncClient(base_url=settings.OPENAI_BASE_URL, headers=headers, timeout=30) as client:
+    async with httpx.AsyncClient(base_url=base, headers=headers, timeout=30) as client:
         r = await client.post("/embeddings", json=payload)
         if r.status_code == 400 and "dimensions" in payload:
             # provider doesn't support dimension hints — retry minimal payload
@@ -110,9 +113,12 @@ async def _embed_via_api(texts: list[str]) -> list[list[float]]:
 
 async def _embed_via_gemini(texts: list[str]) -> list[list[float]]:
     """Gemini embeddings (free tier) — dims pinned to EMBED_VECTOR_SIZE so the stored
-    points match the fastembed-era shape. Batch endpoint first, single calls as fallback."""
-    if not settings.GEMINI_API_KEY:
-        raise EmbeddingUnavailable("GEMINI_API_KEY not set")
+    points match across providers. Batch endpoint first, single calls as fallback.
+    GEMINI_EMBED_API_KEY lets a SECOND Google key (separate daily quota) serve
+    embeddings while the main key handles chat."""
+    key = settings.GEMINI_EMBED_API_KEY or settings.GEMINI_API_KEY
+    if not key:
+        raise EmbeddingUnavailable("no Gemini API key configured for embeddings")
     model = settings.GEMINI_EMBED_MODEL
 
     def _part(t: str) -> dict:
@@ -126,7 +132,7 @@ async def _embed_via_gemini(texts: list[str]) -> list[list[float]]:
     async with httpx.AsyncClient(timeout=20) as client:
         r = await client.post(
             f"{base}:batchEmbedContents",
-            params={"key": settings.GEMINI_API_KEY},
+            params={"key": key},
             json={"requests": [_part(t) for t in texts]},
         )
         if r.status_code == 200:
@@ -137,7 +143,7 @@ async def _embed_via_gemini(texts: list[str]) -> list[list[float]]:
         # 429s/errors surface here if singles fail too — callers' circuit breakers handle it
         out: list[list[float]] = []
         for t in texts:
-            rr = await client.post(f"{base}:embedContent", params={"key": settings.GEMINI_API_KEY}, json=_part(t))
+            rr = await client.post(f"{base}:embedContent", params={"key": key}, json=_part(t))
             rr.raise_for_status()
             out.append([float(x) for x in rr.json()["embedding"]["values"]])
         return out
@@ -145,17 +151,24 @@ async def _embed_via_gemini(texts: list[str]) -> list[list[float]]:
 
 async def embed(texts: list[str]) -> list[list[float]]:
     provider = (settings.EMBED_PROVIDER or "auto").strip().lower()
-    if provider in ("auto", "gemini") and settings.GEMINI_API_KEY:
+    if provider in ("auto", "gemini") and (settings.GEMINI_EMBED_API_KEY or settings.GEMINI_API_KEY):
         try:
             return await _embed_via_gemini(texts)
         except Exception as e:
             if provider == "gemini":
                 raise EmbeddingUnavailable(f"gemini embeddings failed: {e}") from e
             log.warning("gemini embeddings failed, trying next embedder: %s", e)
+    # OpenAI-compatible middle tier (a fast network call beats the 90MB local ONNX
+    # download + CPU on small hosts; CF Workers AI bge-small is 384-dim like us)
+    if provider in ("auto", "openai") and (settings.EMBED_API_KEY or settings.OPENAI_API_KEY):
+        try:
+            return await _embed_via_api(texts)
+        except Exception as e:
+            if provider == "openai":
+                raise EmbeddingUnavailable(f"embeddings API failed: {e}") from e
+            log.warning("embeddings API failed, trying local embedder: %s", e)
     if provider in ("auto", "fastembed") and TextEmbedding is not None:
         return await asyncio.to_thread(_embed_sync, texts)
-    if provider in ("auto", "openai"):
-        return await _embed_via_api(texts)
     raise EmbeddingUnavailable(f"no embedding backend available (EMBED_PROVIDER={provider})")
 
 

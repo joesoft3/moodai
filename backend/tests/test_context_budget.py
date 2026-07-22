@@ -3,18 +3,9 @@ sources; quota economy on the stand-in stack (titling + memory extraction paused
 
 import asyncio
 
-import pytest
-
 from app.api.routes import chat as chat_route
 from app.config import settings
 from app.services import memory as memory_svc
-
-
-@pytest.fixture(autouse=True)
-def _qdrant_mode(monkeypatch):
-    # budget tests pin exact timeouts; pgvector mode intentionally raises the same-fate
-    # floor to ≥8s (Neon wake-from-idle), so these tests force external-Qdrant semantics
-    monkeypatch.setattr(settings, "VECTOR_BACKEND", "qdrant")
 
 
 # ---------- hard budget on context sources ----------

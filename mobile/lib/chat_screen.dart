@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -64,7 +63,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
+class _ChatScreenState extends State<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final List<ChatMsg> _messages = [];
@@ -82,11 +81,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _thinkOn = false;
   String _model = 'auto';
   bool _recording = false;
-  // 🏠 idle auto-home (web parity): 5 min without activity → back to the clean
-  // Grok home. Chats are never lost — they live in the ☰ drawer history.
-  static const Duration _idleReset = Duration(minutes: 5);
-  DateTime _lastActive = DateTime.now();
-  Timer? _idleTimer;
   // ---- teams
   List<Workspace> _workspaces = [];
   Workspace? _workspace; // null = personal chats
@@ -95,48 +89,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _idleTimer = Timer.periodic(const Duration(minutes: 1), (_) => _checkIdle());
     _loadConversations();
     _loadWorkspaces();
   }
 
   @override
   void dispose() {
-    _idleTimer?.cancel();
-    WidgetsBinding.instance.removeObserver(this);
     _recorder.dispose();
     _player.dispose();
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _checkIdle(); // stale background app snaps home
-  }
-
-  void _poke() {
-    _lastActive = DateTime.now();
-  }
-
-  void _checkIdle() {
-    if (!mounted) return;
-    if (_busy || _recording) return; // NEVER chop a live stream or a recording
-    if (DateTime.now().difference(_lastActive) >= _idleReset) {
-      _poke();
-      _goHomeIdle();
-    }
-  }
-
-  /// Idle reset: back to the clean home from any state — without deleting anything.
-  void _goHomeIdle() {
-    if (_conversationId == null && _messages.isEmpty && _files.isEmpty) return;
-    setState(() {
-      _conversationId = null;
-      _messages.clear();
-      _files.clear();
-    });
-    _loadConversations(); // keep the drawer instantly current
   }
 
   Future<void> _loadConversations() async {
@@ -300,7 +261,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Core send path — also reused by ⚔️ rematch (replays the last question).
   Future<void> _sendMessage(String text, {bool rematch = false}) async {
     if (text.isEmpty || _busy) return;
-    _poke();
     final useArena = _arenaMode || rematch;
     final fileIds = rematch ? <String>[] : _files.map((f) => f.id).toList();
     final assistant = ChatMsg(role: 'assistant', text: '');
@@ -435,14 +395,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _arenaMode = wasArena;
   }
 
-  // display-name rule (web parity): users see S1 Mood-4 / S1 Mood-4-Fast labels,
-  // never raw vendor ids (ids themselves stay = server routes on them)
   static const _pickerModels = [
-    ['auto', '🚀', 'Auto · best pick per message'],
-    ['grok-3-mini', '💸', 'Mini · cheapest, quick answers'],
-    ['grok-4-fast', '⚡', 'S1 Mood-4-Fast · newest gen, 2M ctx'],
-    ['grok-4', '👑', 'S1 Mood-4 · flagship (🧠 reasoning)'],
-    ['grok-code-fast-1', '💻', 'Code · deep reasoning for code'],
+    ['auto', '🚀', 'Auto · best pick'],
+    ['grok-3-mini', '⚡', 'grok-3-mini · cheapest'],
+    ['grok-4-fast', '💨', 'S1 Mood-4-Fast · newest, 2M ctx'],
+    ['grok-4', '👑', 'S1 Mood-4 · flagship (🧠 thinking)'],
+    ['grok-code-fast-1', '💻', 'grok-code-fast-1 (🧠 thinking)'],
   ];
 
   Future<void> _showModelPicker() async {
@@ -718,19 +676,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  // display-name rule: users see S1 Mood-4 / S1 Mood-4-Fast, never raw vendor ids
   String _modelLabel() {
-    switch (_model) {
-      case 'grok-3-mini':
-        return 'Mini';
-      case 'grok-4-fast':
-        return 'S1 Mood-4-Fast';
-      case 'grok-4':
-        return 'S1 Mood-4';
-      case 'grok-code-fast-1':
-        return 'Code';
-      default:
-        return 'S1 Mood-4 · auto';
-    }
+    final base = _model == 'grok-4-fast' ? 'S1 Mood-4-Fast' : 'S1 Mood-4';
+    return _model == 'auto' ? '$base · auto' : base;
   }
 
   Widget _quickChip(IconData icon, String label, VoidCallback? onTap) {
@@ -747,153 +696,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  // ─────────────────────────────────────────── 🏠 Grok-clean centered home (web parity)
-  Widget _brandHero() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 84,
-          height: 84,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(color: MoodColors.accent.withOpacity(0.35), blurRadius: 46, spreadRadius: -12),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: Image.asset('assets/icon/app_icon.png', fit: BoxFit.cover),
-          ),
-        ),
-        const SizedBox(height: 14),
-        const Text('Mood AI', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: .2)),
-        const SizedBox(height: 5),
-        Text('UNDERSTAND · ADAPT · ELEVATE',
-            style: TextStyle(fontSize: 11, letterSpacing: 2.4, color: Colors.grey.shade500)),
-      ],
-    );
-  }
-
-  /// Grok-clean centered home: hero + elevated pill composer + quick-launch chips,
-  /// all vertically centered (scrolls up when the keyboard opens).
-  Widget _centeredHome() {
-    return LayoutBuilder(
-      builder: (ctx, cons) => SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: cons.maxHeight),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _brandHero(),
-                const SizedBox(height: 24),
-                Container(
-                  decoration: BoxDecoration(
-                    color: MoodColors.panel,
-                    borderRadius: BorderRadius.circular(26),
-                    border: Border.all(color: MoodColors.line),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: _composerRow(),
-                ),
-                if (_files.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  _filesRow(),
-                ],
-                const SizedBox(height: 14),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 2,
-                  runSpacing: 6,
-                  children: [
-                    _quickChip(Icons.movie_creation_outlined, 'Create Videos', () {
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FilmsScreen()));
-                    }),
-                    _quickChip(Icons.palette_outlined, 'Create design', () {
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DesignScreen()));
-                    }),
-                    _quickChip(Icons.content_cut, 'Edit clip', () {
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const EditScreen()));
-                    }),
-                    _quickChip(Icons.mic_none, 'Voice', _busy ? null : _toggleVoice),
-                    _quickChip(Icons.tune, _modelLabel(), _showModelPicker),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _filesRow() {
-    return SizedBox(
-      height: 34,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: _files.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 6),
-        itemBuilder: (context, i) => Chip(
-          label: Text(_files[i].filename, style: const TextStyle(fontSize: 11)),
-          onDeleted: () => setState(() => _files.removeAt(i)),
-          visualDensity: VisualDensity.compact,
-        ),
-      ),
-    );
-  }
-
-  Widget _composerRow() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        IconButton(
-          icon: const Icon(Icons.attach_file, size: 20),
-          tooltip: 'Attach file',
-          onPressed: _busy ? null : _attach,
-        ),
-        Expanded(
-          child: TextField(
-            controller: _input,
-            minLines: 1,
-            maxLines: 5,
-            textInputAction: TextInputAction.send,
-            onSubmitted: (_) => _send(),
-            decoration: InputDecoration(
-              hintText: _agentMode ? 'Give the agent team a goal…' : 'Ask Mood anything…',
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-            ),
-          ),
-        ),
-        IconButton(
-          icon: Icon(_recording ? Icons.stop : Icons.mic,
-              size: 20, color: _recording ? Colors.redAccent : null),
-          tooltip: _recording ? 'Stop & send' : 'Voice message',
-          onPressed: _busy && !_recording ? null : _toggleVoice,
-        ),
-        IconButton.filled(
-          onPressed: _busy ? null : _send,
-          style: IconButton.styleFrom(backgroundColor: MoodColors.accent),
-          icon: _busy
-              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.send, color: Colors.black, size: 20),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    // any touch counts as activity for the 5-minute idle auto-home timer
-    return Listener(
-      onPointerDown: (_) => _poke(),
-      behavior: HitTestBehavior.translucent,
-      child: Scaffold(
+    return Scaffold(
       appBar: AppBar(
         // 🏠 Grok-clean top bar: hamburger = everything moved to the menu,
         // Ask | Imagine tabs centered, ⚔ Arena as the single right icon.
@@ -1120,7 +925,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
           Expanded(
             child: _messages.isEmpty
-                ? _centeredHome() // 🏠 Grok-clean centered home: hero + pill composer + chips
+                ? Center(
+                    // 🏠 Grok-clean home: just the Mood AI mark as a watermark.
+                    child: Opacity(
+                      opacity: 0.10,
+                      child: Image.asset('assets/icon/app_icon.png', width: 210),
+                    ),
+                  )
                 : ListView.builder(
                     controller: _scroll,
                     padding: const EdgeInsets.all(12),
@@ -1132,19 +943,86 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         ),
                   ),
           ),
-          // bottom zone exists only inside a conversation — the home keeps everything centered
-          if (_messages.isNotEmpty) ...[
-            if (_files.isNotEmpty) _filesRow(),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
-                child: _composerRow(),
+          // 🏠 Quick-launch chips (Grok-style) — only on the clean empty home
+          if (_messages.isEmpty)
+            SizedBox(
+              height: 46,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                children: [
+                  _quickChip(Icons.movie_creation_outlined, 'Create Videos', () {
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FilmsScreen()));
+                  }),
+                  _quickChip(Icons.palette_outlined, 'Create design', () {
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DesignScreen()));
+                  }),
+                  _quickChip(Icons.content_cut, 'Edit clip', () {
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const EditScreen()));
+                  }),
+                  _quickChip(Icons.mic_none, 'Voice', _busy ? null : _toggleVoice),
+                  _quickChip(Icons.tune, _modelLabel(), _showModelPicker),
+                ],
               ),
             ),
-          ],
+          if (_files.isNotEmpty)
+            SizedBox(
+              height: 34,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: _files.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                itemBuilder: (context, i) => Chip(
+                  label: Text(_files[i].filename, style: const TextStyle(fontSize: 11)),
+                  onDeleted: () => setState(() => _files.removeAt(i)),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.attach_file, size: 20),
+                    tooltip: 'Attach file',
+                    onPressed: _busy ? null : _attach,
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _input,
+                      minLines: 1,
+                      maxLines: 5,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _send(),
+                      decoration: InputDecoration(
+                        hintText: _agentMode ? 'Give the agent team a goal…' : 'Ask Mood anything…',
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(_recording ? Icons.stop : Icons.mic,
+                        size: 20, color: _recording ? Colors.redAccent : null),
+                    tooltip: _recording ? 'Stop & send' : 'Voice message',
+                    onPressed: _busy && !_recording ? null : _toggleVoice,
+                  ),
+                  IconButton.filled(
+                    onPressed: _busy ? null : _send,
+                    style: IconButton.styleFrom(backgroundColor: MoodColors.accent),
+                    icon: _busy
+                        ? const SizedBox(
+                            width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.send, color: Colors.black, size: 20),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
-      ),
       ),
     );
   }
