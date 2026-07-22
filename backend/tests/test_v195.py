@@ -127,6 +127,13 @@ def test_keep_warm_enabled_default(monkeypatch):
     assert keepwarm.keep_warm_enabled() is False
 
 
+def test_keep_warm_status_shape(monkeypatch):
+    st = keepwarm.keep_warm_status()
+    assert st["enabled"] is True and st["running"] is False  # lifespan not started in tests
+    assert st["interval_s"] == settings.DB_KEEP_WARM_S
+    assert st["pings"] >= 0 and "last_ping" in st
+
+
 def test_keep_warm_heartbeat_pings_repeatedly(monkeypatch):
     db = _DB()
     monkeypatch.setattr(keepwarm, "SessionLocal", lambda: db)

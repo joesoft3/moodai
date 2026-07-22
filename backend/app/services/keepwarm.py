@@ -14,6 +14,7 @@ DB_KEEP_WARM=false to allow idle suspension).
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 
@@ -23,19 +24,35 @@ from ..db.session import SessionLocal
 log = logging.getLogger(__name__)
 
 _task: asyncio.Task | None = None
+_pings: int = 0
+_last_ping: str | None = None
 
 
 def keep_warm_enabled() -> bool:
     return bool(settings.DB_KEEP_WARM)
 
 
+def keep_warm_status() -> dict:
+    """Surfaced on /healthz so the heartbeat is verifiable without log access."""
+    return {
+        "enabled": keep_warm_enabled(),
+        "running": _task is not None,
+        "interval_s": settings.DB_KEEP_WARM_S,
+        "pings": _pings,
+        "last_ping": _last_ping,
+    }
+
+
 async def _loop() -> None:
+    global _pings, _last_ping
     interval = max(30.0, float(settings.DB_KEEP_WARM_S))
     while True:
         await asyncio.sleep(interval)
         try:
             async with SessionLocal() as db:
                 await db.execute(sa.text("SELECT 1"))
+            _pings += 1
+            _last_ping = datetime.now(timezone.utc).isoformat()
             log.debug("db keep-warm ping ok")
         except Exception as e:  # never let a blip kill the heartbeat
             log.info("db keep-warm ping failed (retrying next cycle): %s", e)

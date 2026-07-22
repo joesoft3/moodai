@@ -126,8 +126,15 @@ app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 
 @app.get("/healthz")
 async def healthz():
-    """Liveness probe: is the process up?"""
-    return {"status": "ok", "app": settings.APP_NAME}
+    """Liveness probe + operator-visible heartbeat state (version, DB keep-warm)."""
+    from .services.keepwarm import keep_warm_status
+
+    return {
+        "status": "ok",
+        "app": settings.APP_NAME,
+        "version": app.version,
+        "keep_warm": keep_warm_status(),
+    }
 
 
 @app.get("/readyz")
