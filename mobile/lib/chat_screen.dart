@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:video_player/video_player.dart';
 
 import 'design_screen.dart';
 import 'edit_screen.dart';
@@ -27,6 +28,43 @@ class AgentStep {
   String? preview;
 }
 
+/// 🎨🎬 In-chat creation (v1.9.7): image/video generated inline from the chat box.
+class ChatMedia {
+  ChatMedia({
+    required this.kind,
+    this.url,
+    this.prompt,
+    this.stored,
+    this.pending = false,
+    this.stage,
+    this.done,
+    this.total,
+  });
+
+  final String kind; // 'image' | 'video'
+  String? url;
+  String? prompt;
+  String? stored; // r2 | local | hotlink
+  bool pending;
+  String? stage; // scenes | compositing
+  int? done;
+  int? total;
+
+  /// Reload contract: assistant meta.media[0] re-renders the artifact.
+  static ChatMedia? fromMeta(dynamic meta) {
+    if (meta is! Map) return null;
+    final list = meta['media'];
+    if (list is! List || list.isEmpty || list.first is! Map) return null;
+    final m = Map<dynamic, dynamic>.from(list.first as Map);
+    return ChatMedia(
+      kind: '${m['kind'] ?? 'image'}',
+      url: m['url'] as String?,
+      prompt: m['prompt'] as String?,
+      stored: m['stored'] as String?,
+    );
+  }
+}
+
 class ChatMsg {
   ChatMsg({required this.role, required this.text, this.author});
   final String role; // 'user' | 'assistant'
@@ -36,6 +74,7 @@ class ChatMsg {
   ArenaLiveState? arenaLive; // ⚔️ while the arena streams
   ArenaVerdict? arenaData; // ⚔️ final verdict (live or restored from meta)
   String? think; // 🧠 extended reasoning line
+  ChatMedia? media; // 🎨🎬 in-chat creation
 }
 
 class Conversation {
@@ -268,11 +307,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ? _authors['${m['user_id']}']
                       : null,
                 )
-                  // ⚔️ restore arena verdicts + 🧠 thinking lines from persisted meta
+                  // ⚔️ restore arena verdicts + 🧠 thinking lines + 🎨🎬 creations from persisted meta
                   ..arenaData = (m['meta'] is Map && (m['meta'] as Map)['mode'] == 'arena')
                       ? ArenaVerdict.fromMeta(m['meta'] as Map)
                       : null
-                  ..think = _thinkLine(m['meta']),
+                  ..think = _thinkLine(m['meta'])
+                  ..media = ChatMedia.fromMeta(m['meta']),
           ]);
       });
       _scrollToBottom();
@@ -351,6 +391,39 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             setState(() => assistant.text += (ev['text'] as String?) ?? '');
             _scrollToBottom();
             break;
+          case 'media_start': // 🎨🎬 in-chat creation started
+            setState(() {
+              assistant.media = ChatMedia(
+                kind: '${ev['kind'] ?? 'image'}',
+                prompt: ev['prompt'] as String?,
+                pending: true,
+              );
+            });
+            _scrollToBottom();
+            break;
+          case 'media_progress': // 🎬 reel pipeline stages
+            setState(() {
+              final md = assistant.media;
+              if (md != null) {
+                md
+                  ..pending = true
+                  ..stage = '${ev['stage'] ?? ''}'
+                  ..done = (ev['done'] is num) ? (ev['done'] as num).toInt() : null
+                  ..total = (ev['total'] is num) ? (ev['total'] as num).toInt() : null;
+              }
+            });
+            break;
+          case 'media': // ✅ artifact ready
+            setState(() {
+              assistant.media = ChatMedia(
+                kind: '${ev['kind'] ?? 'image'}',
+                url: ev['url'] as String?,
+                prompt: ev['prompt'] as String?,
+                stored: ev['stored'] as String?,
+              );
+            });
+            _scrollToBottom();
+            break;
           case 'topic':
             setState(() {
               assistant.arenaLive = ArenaLiveState(
@@ -403,7 +476,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             break;
         }
       }
-      if (assistant.text.isEmpty) {
+      if (assistant.text.isEmpty && assistant.media == null) {
         setState(() => assistant.text = '⚠️ Empty response');
       }
     } catch (e) {
@@ -808,8 +881,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   spacing: 2,
                   runSpacing: 6,
                   children: [
-                    _quickChip(Icons.movie_creation_outlined, 'Create Videos', () {
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FilmsScreen()));
+                    // 🎨🎬 in-chat creation: prefill the composer, never leave chat
+                    _quickChip(Icons.image_outlined, 'Create image', () {
+                      setState(() => _input.text = 'create an image of ');
+                    }),
+                    _quickChip(Icons.movie_creation_outlined, 'Create video', () {
+                      setState(() => _input.text = 'create a video of ');
                     }),
                     _quickChip(Icons.palette_outlined, 'Create design', () {
                       Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DesignScreen()));
@@ -1237,8 +1314,15 @@ class _Bubble extends StatelessWidget {
               verdict: msg.arenaData,
               onRematch: msg.arenaData != null && canRematch ? onRematch : null,
             ),
+          if (msg.media != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _MediaCard(media: msg.media!),
+            ),
           msg.text.isEmpty
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              ? (msg.media == null
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const SizedBox.shrink())
               : SelectionArea(
                   child: MarkdownBody(
                     data: msg.text,
@@ -1258,4 +1342,190 @@ class _Bubble extends StatelessWidget {
         'critic' => '🧐',
         _ => '🤖',
       };
+}
+
+/// 🎨🎬 In-chat creation card: shimmer-ish progress while generating →
+/// image (tap = fullscreen) or an inline video player (lazy init on first play).
+class _MediaCard extends StatelessWidget {
+  const _MediaCard({required this.media});
+  final ChatMedia media;
+
+  String get _stageLabel {
+    if (media.kind == 'image') return '🎨 Painting your image…';
+    if (media.stage == 'compositing') return '🎞️ Compositing your reel…';
+    if (media.stage == 'scenes' && media.total != null) {
+      return '🎬 Directing scenes (${media.done ?? 0}/${media.total})…';
+    }
+    return '🎬 Directing your reel…';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(16);
+    if (media.pending || media.url == null) {
+      return ClipRRect(
+        borderRadius: radius,
+        child: Container(
+          decoration: BoxDecoration(
+            color: MoodColors.panel,
+            border: Border.all(color: MoodColors.line),
+            borderRadius: radius,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const AspectRatio(aspectRatio: 16 / 9, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: Text(_stageLabel, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return ClipRRect(
+      borderRadius: radius,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black,
+          border: Border.all(color: MoodColors.line),
+          borderRadius: radius,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (media.kind == 'image')
+              GestureDetector(
+                onTap: () => showDialog(
+                  context: context,
+                  builder: (_) => Dialog(
+                    backgroundColor: Colors.black,
+                    insetPadding: EdgeInsets.zero,
+                    child: Stack(
+                      children: [
+                        Center(child: InteractiveViewer(child: Image.network(media.url!))),
+                        const Positioned(top: 40, right: 16, child: CloseButton(color: Colors.white)),
+                      ],
+                    ),
+                  ),
+                ),
+                child: Image.network(
+                  media.url!,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (c, w, p) => p == null
+                      ? w
+                      : const AspectRatio(aspectRatio: 1, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+                  errorBuilder: (_, __, ___) => const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text('🖼️ image unavailable — link may have expired', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ),
+                ),
+              )
+            else
+              _InlineVideo(url: media.url!),
+            if ((media.prompt ?? '').isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${media.kind == 'image' ? '🎨' : '🎬'} ${media.prompt}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 10, color: Colors.grey),
+                      ),
+                    ),
+                    if (media.stored == 'r2') const Text('☁️', style: TextStyle(fontSize: 10)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Inline chat video: 16:9 placeholder with a play affordance; the controller
+/// initializes lazily on first tap so restored histories stay light.
+class _InlineVideo extends StatefulWidget {
+  const _InlineVideo({required this.url});
+  final String url;
+
+  @override
+  State<_InlineVideo> createState() => _InlineVideoState();
+}
+
+class _InlineVideoState extends State<_InlineVideo> {
+  VideoPlayerController? _c;
+  bool _loading = false;
+  bool _failed = false;
+
+  Future<void> _toggle() async {
+    if (_loading) return;
+    try {
+      if (_c == null) {
+        setState(() => _loading = true);
+        final c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+        _c = c;
+        await c.initialize();
+        await c.play();
+      } else if (_c!.value.isPlaying) {
+        await _c!.pause();
+      } else {
+        await _c!.play();
+      }
+    } catch (_) {
+      _failed = true;
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _c?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = _c != null && _c!.value.isInitialized && !_failed;
+    return AspectRatio(
+      aspectRatio: ready ? _c!.value.aspectRatio : 16 / 9,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (ready) VideoPlayer(_c!),
+          if (_failed)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('🎬 video unavailable — link may have expired', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ),
+          GestureDetector(
+            onTap: _toggle,
+            behavior: HitTestBehavior.opaque,
+            child: Center(
+              child: _loading
+                  ? const CircularProgressIndicator(strokeWidth: 2)
+                  : Icon(
+                      ready && _c!.value.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                      size: 52,
+                      color: Colors.white.withOpacity(0.9),
+                    ),
+            ),
+          ),
+          if (ready)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: VideoProgressIndicator(_c!, allowScrubbing: true, padding: EdgeInsets.zero),
+            ),
+        ],
+      ),
+    );
+  }
 }

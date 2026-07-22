@@ -20,10 +20,12 @@ from ...core.metrics import track_stream
 from ...db.models import Conversation, FileAsset, Message, User
 from ...db.session import SessionLocal, get_db
 from ...schemas import ChatRequest, ImageRequest
+from ...services.create_intent import CreateIntent, route_media_intent
 from ...services.file_extract import image_data_url
 from ...services.llm import friendly_ai_error, llm
+from ...services.media import VideoGenerationError, VideoNotConfigured, VideoOptions, video
 from ...services.memory import extract_and_store, retrieve_memories
-from ...services.metering import estimate_tokens, plan_rate_mult, record_usage
+from ...services.metering import PLAN_LIMITS, count_today, estimate_tokens, plan_rate_mult, record_usage
 from ...services.plugins import resolve_plugins
 from ...services.rag import retrieve_doc_chunks
 from ...services.recall import recent_chat_summaries, retrieve_past_chats, update_conversation_summary
@@ -346,6 +348,32 @@ async def chat_stream(
             a.conversation_id = conv.id
     await db.commit()
 
+    # 🎨🎬 In-chat creation (v1.9.7) — "create an image of…" / "make a video of…"
+    # Routed BEFORE context assembly: zero LLM classification cost, no memory/RAG
+    # retrieval spent on gen prompts, generation streams inline like ChatGPT.
+    if settings.CHAT_MEDIA and not req.files and not req.search and not req.plugins:
+        last_media: dict | None = None
+        if not created:
+            prev = (
+                await db.execute(
+                    select(Message)
+                    .where(Message.conversation_id == conv.id, Message.role == "assistant")
+                    .order_by(Message.created_at.desc())
+                    .limit(1)
+                )
+            ).scalars().first()
+            if prev and isinstance(prev.meta, dict):
+                ml = prev.meta.get("media")
+                if isinstance(ml, list) and ml and isinstance(ml[0], dict):
+                    last_media = ml[0]
+        intent: CreateIntent | None = None
+        if req.mode in ("image", "video") and req.message.strip():
+            intent = CreateIntent(kind=req.mode, prompt=req.message.strip())
+        else:
+            intent = route_media_intent(req.message, last_media)
+        if intent:
+            return await _media_stream(req, db, user, conv, created, intent, bg)
+
     messages, model, live_search = await build_messages(
         db, user, conv.id, req.message, req.files, req.search, created
     )
@@ -443,13 +471,19 @@ async def chat_stream(
     )
 
 
-async def _persist_generated_image(db: AsyncSession, user: User, url: str) -> tuple[str, str]:
-    """Archive a generated image: download the bytes → durable storage (R2/local) →
-    FileAsset row so it lives in the user's library. Returns (render_url, stored_kind) —
-    falls back to the provider hotlink on ANY hiccup (generation never fails because
-    archiving did)."""
+async def _persist_generated_media(db: AsyncSession, user: User, url: str, expect: str) -> tuple[str, str]:
+    """Archive generated media (image|video): download the bytes → durable storage
+    (R2/local) → FileAsset row so it lives in the user's library. Returns
+    (render_url, stored_kind) — falls back to the provider link on ANY hiccup
+    (a generation never fails because archiving did)."""
     if not settings.IMAGE_PERSIST:
         return url, "hotlink"
+    max_mb = settings.MAX_UPLOAD_MB if expect == "image" else settings.VIDEO_MAX_DOWNLOAD_MB
+    exts = (
+        {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+        if expect == "image"
+        else {"video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov"}
+    )
     try:
         import base64
 
@@ -457,17 +491,17 @@ async def _persist_generated_image(db: AsyncSession, user: User, url: str) -> tu
 
         if url.startswith("data:"):
             head, _, b64 = url.partition(",")
-            mime = (head[5:].split(";")[0] or "image/png").strip()
+            mime = (head[5:].split(";")[0] or f"{expect}/png").strip()
             data = base64.b64decode(b64)
         else:
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, read=120.0), follow_redirects=True) as client:
                 r = await client.get(url)
                 r.raise_for_status()
-                mime = (r.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
+                mime = (r.headers.get("content-type") or ("image/jpeg" if expect == "image" else "video/mp4")).split(";")[0].strip()
                 data = r.content
-        if not data or not mime.startswith("image/") or len(data) > settings.MAX_UPLOAD_MB * 1024 * 1024:
+        if not data or not mime.startswith(f"{expect}/") or len(data) > max_mb * 1024 * 1024:
             return url, "hotlink"
-        ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}.get(mime, "jpg")
+        ext = exts.get(mime, "jpg" if expect == "image" else "mp4")
         fname = f"mood-gen-{uuid.uuid4().hex[:12]}.{ext}"
         marker = await storage.put_upload(user.id, fname, data)
         db.add(FileAsset(user_id=user.id, filename=fname, mime=mime, path=marker, size_bytes=len(data)))
@@ -475,8 +509,166 @@ async def _persist_generated_image(db: AsyncSession, user: User, url: str) -> tu
         fresh = await storage.presigned_url(marker, settings.IMAGE_PERSIST_TTL_S)
         return (fresh or url), ("r2" if storage.is_remote(marker) else "local")
     except Exception as e:
-        log.warning("image persistence skipped (serving provider link): %s", e)
+        log.warning("%s persistence skipped (serving provider link): %s", expect, e)
         return url, "hotlink"
+
+
+async def _persist_generated_image(db: AsyncSession, user: User, url: str) -> tuple[str, str]:
+    return await _persist_generated_media(db, user, url, "image")
+
+
+def _video_opts_from_prompt(prompt: str) -> VideoOptions:
+    """Free aspect/style hints picked out of natural language (no LLM)."""
+    p = prompt.lower()
+    aspect = "9:16" if any(w in p for w in ("vertical", "portrait", "tall ", "phone", "tiktok", "reel")) else "16:9"
+    if "square" in p:
+        aspect = "1:1"
+    style = "cinematic"
+    for w, s in (("anime", "anime"), ("photoreal", "photoreal"), ("photo-real", "photoreal"),
+                 ("timelapse", "timelapse"), ("time-lapse", "timelapse"), ("documentary", "documentary"),
+                 ("retro", "retro_film"), ("16mm", "retro_film"), ("product ad", "product_ad"),
+                 ("commercial", "product_ad")):
+        if w in p:
+            style = s
+            break
+    return VideoOptions(duration=8, aspect_ratio=aspect, quality="720p", style=style)
+
+
+async def _media_stream(
+    req: ChatRequest,
+    db: AsyncSession,
+    user: User,
+    conv: Conversation,
+    created: bool,
+    intent: CreateIntent,
+    bg: BackgroundTasks,
+) -> StreamingResponse:
+    """🎨🎬 One SSE contract for in-chat creations: meta → media_start →
+    (media_progress…) → media → done. The assistant message persists with
+    meta.media so web + mobile re-render the artifact on reload."""
+    kind = intent.kind
+    prompt = intent.prompt[:900]
+    if kind == "image":
+        await enforce_rate_limit(
+            f"chatimg:{user.id}", settings.CHAT_IMAGE_RATE_PER_MIN * plan_rate_mult(user.plan)
+        )
+    else:
+        await enforce_rate_limit(
+            f"chatvid:{user.id}", settings.CHAT_VIDEO_RATE_PER_MIN * plan_rate_mult(user.plan)
+        )
+        cap = PLAN_LIMITS.get(user.plan, PLAN_LIMITS["free"]).get("video_day", 0)
+        if cap and await count_today(db, user.id, "video") >= cap:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                f"Daily video limit reached for the {user.plan} plan ({cap}/day). Upgrade for more.",
+            )
+
+    async def event_source():
+        model_label = "Mood Canvas" if kind == "image" else "Mood Reel"
+        try:
+            yield sse({"type": "meta", "conversation_id": conv.id, "model": model_label, "created": created})
+            yield sse({"type": "media_start", "kind": kind, "prompt": prompt})
+            if kind == "image":
+                url = await llm.generate_image(prompt)
+                if not url:
+                    raise VideoGenerationError("Image provider returned no image")
+                async with SessionLocal() as ps:  # fresh session — request db may be closed mid-stream
+                    render_url, stored = await _persist_generated_image(ps, user, url)
+            else:
+                q: asyncio.Queue = asyncio.Queue()
+
+                async def run_video() -> None:
+                    try:
+                        # aspect/style hints live in the raw instruction; prompt is the cleaned idea
+                        u, _ = await video.generate(
+                            prompt, _video_opts_from_prompt(f"{req.message} {prompt}"),
+                            on_progress=lambda d: q.put_nowait(d),
+                        )
+                        await q.put({"type": "result", "url": u})
+                    except Exception as e:  # noqa: BLE001 - delivered on the wire, not raised
+                        await q.put({"type": "fail", "err": e})
+
+                task = asyncio.create_task(run_video())
+                try:
+                    provider_url = None
+                    while True:
+                        item = await asyncio.wait_for(q.get(), timeout=settings.VIDEO_MAX_WAIT_SECONDS)
+                        if item.get("type") == "result":
+                            provider_url = item["url"]
+                            break
+                        if item.get("type") == "fail":
+                            raise item["err"]
+                        yield sse(
+                            {
+                                "type": "media_progress",
+                                "kind": kind,
+                                "stage": item.get("stage"),
+                                "done": item.get("done"),
+                                "total": item.get("total"),
+                            }
+                        )
+                finally:
+                    if not task.done():
+                        task.cancel()
+                async with SessionLocal() as ps:  # fresh session — request db may be closed mid-stream
+                    render_url, stored = await _persist_generated_media(ps, user, provider_url, "video")
+
+            media_obj = {"kind": kind, "url": render_url, "prompt": prompt, "stored": stored}
+            if intent.refine:
+                caption = (
+                    f"🎨 **Remixed it** — *\"{prompt}\"*" if kind == "image"
+                    else f"🎬 **Re-cut your reel** — *\"{prompt}\"*"
+                )
+            else:
+                caption = (
+                    f"🎨 **Here's your image** — *\"{prompt}\"*" if kind == "image"
+                    else f"🎬 **Your reel is ready** — *\"{prompt}\"*"
+                )
+            caption += "\n\n_Say “make it …” to iterate — it’s also saved to your Files library._"
+            yield sse({"type": "media", **media_obj})
+            yield sse({"type": "delta", "text": caption})  # live caption == persisted content
+            async with SessionLocal() as s:
+                s.add(
+                    Message(
+                        conversation_id=conv.id,
+                        role="assistant",
+                        content=caption,
+                        meta={"mode": "media", "media": [media_obj]},
+                    )
+                )
+                c = await s.get(Conversation, conv.id)
+                if c:
+                    c.updated_at = datetime.now(timezone.utc)
+                await s.commit()
+            await record_usage(
+                user.id,
+                kind,
+                settings.MODEL_IMAGE if kind == "image" else settings.MODEL_VIDEO,
+            )
+            # gen prompts aren't user facts — skip memory extraction (quota + hygiene);
+            # the conversation still gets titled + summarized like any other.
+            if created:
+                bg.add_task(generate_title, conv.id, req.message)
+            bg.add_task(update_conversation_summary, user.id, conv.id)
+            yield sse({"type": "done"})
+        except Exception as e:
+            log.warning("in-chat %s failed: %s", kind, e)
+            if isinstance(e, VideoNotConfigured):
+                msg = f"{e}"
+            elif isinstance(e, VideoGenerationError):
+                msg = f"Couldn’t finish that {kind} — {e}"
+            else:
+                msg = (
+                    f"Couldn’t finish that {kind} — the creation studio hiccuped on my end. "
+                    "Try again in a moment."
+                )
+            yield sse({"type": "error", "message": msg})
+
+    return StreamingResponse(
+        track_stream(event_source()),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/image")

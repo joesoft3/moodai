@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bot, Globe, Headphones, Mic, Paperclip, Puzzle, SendHorizontal, Square, Telescope, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useRecorder } from "@/lib/use-recorder";
@@ -32,6 +32,8 @@ interface Props {
   onUpload: (f: File) => Promise<void>;
   onSend: (text: string, search: boolean) => Promise<void>;
   onVoice: (blob: Blob) => Promise<void>;
+  /** 🎨🎬 Home chips prefill the input without sending (nonce retriggers). */
+  draft?: { text: string; nonce: number };
   /** 🏠 bare = rendered inside the Grok-style centered empty home: no border-t strip. */
   bare?: boolean;
 }
@@ -55,6 +57,7 @@ export default function Composer({
   onUpload,
   onSend,
   onVoice,
+  draft,
   bare = false,
 }: Props) {
   const [input, setInput] = useState("");
@@ -63,6 +66,19 @@ export default function Composer({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const canSend = !busy && (input.trim().length > 0 || files.length > 0);
+
+  // 🎨🎬 "Create image/video" home chips prefill the composer (never auto-send)
+  useEffect(() => {
+    if (!draft) return;
+    setInput(draft.text);
+    const t = inputRef.current;
+    if (t) {
+      t.focus();
+      t.style.height = "auto";
+      t.style.height = Math.min(t.scrollHeight, 160) + "px";
+      t.setSelectionRange(t.value.length, t.value.length);
+    }
+  }, [draft]);
 
   async function submit() {
     if (!canSend) return;

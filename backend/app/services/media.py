@@ -6,14 +6,24 @@ Professional features:
 - Lean-retry: if the provider rejects extended params, we retry with the
   minimal payload instead of failing the user's generation.
 
-Default "xai": async task pattern (POST → immediate URL or polled request id).
-Other providers (Runway, Pika, Luma) plug in as one method + one env value.
+Provider cascade (VIDEO_PROVIDER is a comma-chain, first success wins):
+- "reel"         🎬 Mood Reel — zero-key composer: FLUX scene stills (keyless
+                 Pollinations) → ffmpeg Ken Burns mp4 with crossfades. Works
+                 today; needs only ffmpeg (both deploy images ship it, and the
+                 imageio-ffmpeg wheel covers serverless).
+- "pollinations" gen.pollinations.ai video models (wan-fast etc.) — needs
+                 POLLINATIONS_API_KEY (401 without one, verified live).
+- "xai"          Grok video when the key carries credits (402 → cascades on).
 """
 
 import asyncio
 import logging
+import os
+import shutil
+import tempfile
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
+from urllib.parse import quote
 
 import httpx
 
@@ -44,6 +54,17 @@ STYLE_PRESETS: dict[str, str] = {
 QUALITY_TAGS = {"720p": "high quality", "1080p": "high quality, sharp 1080p detail"}
 
 NEGATIVE_DEFAULT = "morphing, flicker, warped faces, distorted hands, text artifacts, watermark, jitter"
+
+# 🎬 Mood Reel scene beats — deterministic camera-language variations wrapped
+# around the user's idea (no LLM spent: daily-quota economy).
+REEL_BEATS = [
+    "wide establishing shot, full scene in frame",
+    "slow push-in, rich mid-frame detail",
+    "close-up detail shot, shallow depth of field",
+    "dramatic angle, golden-hour light, layered background",
+    "sweeping panoramic view, atmospheric haze",
+]
+REEL_FADE_S = 0.5
 
 
 @dataclass
@@ -99,20 +120,195 @@ def _dig_url(data: Any) -> str | None:
     return None
 
 
+def _ffmpeg_exe() -> str | None:
+    """System ffmpeg first; the imageio-ffmpeg wheel covers hosts (Vercel lambdas)
+    where no apt binary exists."""
+    exe = shutil.which(settings.FFMPEG_PATH or "ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg  # type: ignore
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+def _reel_dims(aspect: str) -> tuple[int, int]:
+    return {"16:9": (1600, 900), "9:16": (900, 1600), "1:1": (1280, 1280)}.get(aspect, (1600, 900))
+
+
 class VideoService:
     def __init__(self) -> None:
-        self._http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=60.0))
+        self._http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=90.0))
 
     async def generate(self, prompt: str, opts: VideoOptions,
-                       image: dict | None = None) -> tuple[str, bool]:
-        provider = settings.VIDEO_PROVIDER.lower()
-        if provider == "xai":
-            return await self._xai(prompt, opts, image=image)
-        raise VideoNotConfigured(
-            f"VIDEO_PROVIDER={provider} not available yet — supported today: xai. "
-            "The seam is services/media.py (Runway/Pika/Luma = one method + one env value)."
-        )
+                       image: dict | None = None,
+                       on_progress: Callable[[dict], None] | None = None) -> tuple[str, bool]:
+        chain = [p.strip().lower() for p in (settings.VIDEO_PROVIDER or "reel").split(",") if p.strip()]
+        if not chain:
+            chain = ["reel"]
+        last_err: Exception | None = None
+        for name in chain:
+            try:
+                if name == "reel":
+                    return await self._reel(prompt, opts, on_progress=on_progress)
+                if name == "pollinations":
+                    return await self._pollinations(prompt, opts)
+                if name == "xai":
+                    return await self._xai(prompt, opts, image=image)
+                raise VideoNotConfigured(f"Unknown VIDEO_PROVIDER member '{name}'.")
+            except (VideoNotConfigured, VideoGenerationError) as e:
+                last_err = e
+                if name != chain[-1]:
+                    log.info("video provider '%s' unavailable (%s) — cascading", name, e)
+                    continue
+        if last_err:
+            raise last_err
+        raise VideoNotConfigured("VIDEO_PROVIDER chain is empty.")
 
+    # ------------------------------------------------------------- reel
+    async def _reel(self, prompt: str, opts: VideoOptions,
+                    on_progress: Callable[[dict], None] | None = None) -> tuple[str, bool]:
+        """🎬 Mood Reel: N FLUX scene stills → ffmpeg Ken Burns mp4 (xfade chain).
+
+        Returns a /media/files/{name} URL (the routine caller archives to R2 for
+        keeps — the media dir itself is janitored after MEDIA_TTL_HOURS)."""
+        if not settings.REEL_ENABLED:
+            raise VideoNotConfigured("Mood Reel is disabled (REEL_ENABLED=false).")
+        exe = _ffmpeg_exe()
+        if not exe:
+            raise VideoNotConfigured("No ffmpeg on this host — reel composer unavailable.")
+        duration = max(4, min(int(opts.duration or 6), 15))
+        scenes = max(2, min(round(duration / 2.4), settings.REEL_MAX_SCENES))
+        aspect = opts.aspect_ratio if opts.aspect_ratio in ("16:9", "9:16", "1:1") else "16:9"
+        W, H = _reel_dims(aspect)
+        out_w, out_h = (1280, 720) if aspect == "16:9" else ((720, 1280) if aspect == "9:16" else (960, 960))
+        beat_prompts = [
+            f"{prompt.strip()}, {REEL_BEATS[i % len(REEL_BEATS)]}, {STYLE_PRESETS.get(opts.style, STYLE_PRESETS['cinematic'])}"
+            for i in range(scenes)
+        ]
+        if on_progress:
+            on_progress({"stage": "scenes", "done": 0, "total": scenes})
+
+        async def _fetch(i: int, p: str) -> bytes | None:
+            import secrets
+
+            seed = secrets.randbelow(10**9)
+            url = (
+                f"{settings.POLLINATIONS_IMAGE_URL}/{quote(p[:700])}"
+                f"?width={W}&height={H}&seed={seed}&model={settings.POLLINATIONS_MODEL}&nologo=true&enhance=true"
+            )
+            for _ in range(2):  # one retry — provider hiccups are normal
+                try:
+                    r = await self._http.get(url, timeout=httpx.Timeout(20.0, read=75.0))
+                    if r.status_code == 200 and (r.headers.get("content-type") or "").startswith("image/") and r.content:
+                        return r.content
+                except Exception as e:
+                    log.info("reel scene %d fetch hiccup: %s", i, e)
+                await asyncio.sleep(1.2)
+            return None
+
+        shots = await asyncio.gather(*(_fetch(i, p) for i, p in enumerate(beat_prompts)))
+        got = [(i, b) for i, b in enumerate(shots) if b]
+        if on_progress:
+            on_progress({"stage": "scenes", "done": len(got), "total": scenes})
+        if len(got) < 2:
+            raise VideoGenerationError(f"Scene renders came back short ({len(got)}/{scenes}) — try again in a moment.")
+
+        os.makedirs(settings.MEDIA_DIR, exist_ok=True)
+        fade = REEL_FADE_S
+        total = float(duration)
+        per = (total + fade * (len(got) - 1)) / len(got)  # xfade overlaps eat `fade` per joint
+
+        import uuid as _uuid
+
+        with tempfile.TemporaryDirectory(prefix="mood-reel-") as tmp:
+            for n, (_i, blob) in enumerate(got):
+                with open(os.path.join(tmp, f"s{n}.jpg"), "wb") as f:
+                    f.write(blob)
+            inputs: list[str] = []
+            for n in range(len(got)):
+                inputs += ["-loop", "1", "-framerate", "24", "-t", f"{per:.3f}", "-i", os.path.join(tmp, f"s{n}.jpg")]
+            # Ken Burns: alternating push-in / pull-out zoompan per scene
+            labels: list[str] = []
+            for n in range(len(got)):
+                # classic accumulate-zoom Ken Burns (d=1, zoom persists) — commas escaped for the graph parser
+                z_in = "zoompan=z='min(zoom+0.0010\\,1.14)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:fps=24"
+                z_out = "zoompan=z='if(eq(on\\,1)\\,1.14\\,max(zoom-0.0010\\,1.0))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:fps=24"
+                zexpr = z_in if n % 2 == 0 else z_out
+                labels.append(
+                    f"[{n}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
+                    f"crop={W}:{H},{zexpr}:s={out_w}x{out_h},setsar=1,format=yuv420p[v{n}]"
+                )
+            # xfade chain (offsets accumulate minus the overlap)
+            xf = f"[v0][v1]xfade=transition=fade:duration={fade}:offset={per - fade:.3f}[x1]"
+            for n in range(2, len(got)):
+                xf += f";[x{n-1}][v{n}]xfade=transition=fade:duration={fade}:offset={(per * n) - (fade * n):.3f}[x{n}]"
+            graph = ";".join(labels) + ";" + xf
+            last = f"[x{len(got)-1}]"
+            out_name = f"reel-{_uuid.uuid4().hex}.mp4"
+            out_path = os.path.join(settings.MEDIA_DIR, out_name)
+            if on_progress:
+                on_progress({"stage": "compositing", "done": 0, "total": 1})
+            cmd = [
+                exe, "-y", *inputs,
+                "-filter_complex", graph,
+                "-map", last, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-t", f"{total:.3f}", out_path,
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                _, err = await asyncio.wait_for(proc.communicate(), timeout=150)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise VideoGenerationError("Reel compositing timed out.")
+            if proc.returncode != 0 or not os.path.exists(out_path):
+                log.warning("reel ffmpeg failed: %s", (err or b"")[-400:])
+                raise VideoGenerationError("Reel compositing failed — ffmpeg rejected the graph.")
+            if on_progress:
+                on_progress({"stage": "compositing", "done": 1, "total": 1})
+        base = settings.BACKEND_PUBLIC_URL.rstrip("/")
+        return f"{base}/api/v1/media/files/{out_name}", False
+
+    # ------------------------------------------------------- pollinations
+    async def _pollinations(self, prompt: str, opts: VideoOptions) -> tuple[str, bool]:
+        key = (settings.POLLINATIONS_API_KEY or "").strip()
+        if not key:
+            raise VideoNotConfigured("Set POLLINATIONS_API_KEY for pollinations video.")
+        model = settings.POLLINATIONS_VIDEO_MODEL or "wan-fast"
+        dur = max(2, min(int(opts.duration or 6), 15))
+        aspect = opts.aspect_ratio if opts.aspect_ratio in ("16:9", "9:16") else "16:9"
+        url = (
+            f"{settings.POLLINATIONS_VIDEO_URL.rstrip('/')}/{quote(prompt[:900])}"
+            f"?model={model}&duration={dur}&aspectRatio={aspect}"
+        )
+        headers = {"Authorization": f"Bearer {key}"}
+        r = await self._http.get(url, headers=headers, timeout=httpx.Timeout(30.0, read=210.0))
+        if r.status_code in (401, 403):
+            raise VideoNotConfigured(f"Pollinations rejected the key ({r.status_code}).")
+        if r.status_code in (402, 429):
+            raise VideoGenerationError(f"Pollinations video quota/balance: {r.text[:160]}")
+        if r.status_code >= 400:
+            raise VideoGenerationError(f"Pollinations video failed ({r.status_code}): {r.text[:160]}")
+        if (r.headers.get("content-type") or "").startswith("video/"):
+            # serve bytes via the /media/files janitor so downstream (soundtrack,
+            # archiving) always sees a plain URL
+            os.makedirs(settings.MEDIA_DIR, exist_ok=True)
+            import uuid as _uuid
+
+            name = f"polli-{_uuid.uuid4().hex}.mp4"
+            with open(os.path.join(settings.MEDIA_DIR, name), "wb") as f:
+                f.write(r.content)
+            return f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/api/v1/media/files/{name}", False
+        data = r.json() if r.content else {}
+        if u := _dig_url(data):
+            return u, False
+        raise VideoGenerationError(f"Unexpected pollinations video shape: {str(data)[:160]}")
+
+    # --------------------------------------------------------------- xai
     async def _xai(self, prompt: str, opts: VideoOptions,
                    image: dict | None = None) -> tuple[str, bool]:
         if not settings.XAI_API_KEY:
@@ -139,6 +335,8 @@ class VideoService:
             )
         if r.status_code in (401, 403):
             raise VideoNotConfigured("xAI rejected the request — video access on your key/plan may be missing.")
+        if r.status_code == 402:
+            raise VideoNotConfigured("xAI key has no credits — funding it flips true Grok video on.")
         if r.status_code >= 400:
             raise VideoGenerationError(f"Video request failed ({r.status_code}): {r.text[:200]}")
         data = r.json()
@@ -167,4 +365,3 @@ class VideoService:
 
 
 video = VideoService()
-

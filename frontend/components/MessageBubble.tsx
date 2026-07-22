@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, RotateCcw, Square, Volume2 } from "lucide-react";
+import { Check, Copy, Download, RotateCcw, Square, Volume2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import ArenaPanel from "./ArenaPanel";
 import ThinkingPanel from "./ThinkingPanel";
@@ -58,6 +58,18 @@ export interface ConfirmAction {
   note?: string;
 }
 
+/** 🎨🎬 In-chat creation (v1.9.7): image/video generated inline from the chat box. */
+export interface ChatMedia {
+  kind: "image" | "video";
+  url?: string;
+  prompt?: string;
+  stored?: string;
+  pending?: boolean; // media_start received, still generating
+  stage?: string;    // scenes | compositing (video pipeline)
+  done?: number;
+  total?: number;
+}
+
 export interface ChatMsg {
   role: "user" | "assistant" | "system";
   content: string;
@@ -70,9 +82,61 @@ export interface ChatMsg {
   actions?: ConfirmAction[];
   arena?: ArenaState; // ⚔️ multi-model debate
   think?: ThinkState; // 🧠 extended reasoning trace
+  media?: ChatMedia[]; // 🎨🎬 in-chat creations
 }
 
 const AGENT_ICON: Record<string, string> = { researcher: "🔍", coder: "⌨️", writer: "✍️", critic: "🧐" };
+
+/** 🎨🎬 In-chat creation card: shimmer while generating → image frame or video player. */
+function MediaBlock({ m }: { m: ChatMedia }) {
+  const label =
+    m.kind === "image"
+      ? "Painting your image…"
+      : m.stage === "compositing"
+        ? "Compositing your reel…"
+        : m.stage === "scenes" && m.total
+          ? `Directing scenes (${m.done ?? 0}/${m.total})…`
+          : "Directing your reel…";
+  if (m.pending || !m.url) {
+    return (
+      <div className="mb-3 overflow-hidden rounded-2xl border border-line bg-base/60">
+        <div className="aspect-video w-full animate-pulse bg-gradient-to-br from-white/5 via-white/10 to-white/5" />
+        <p className="px-3.5 py-2.5 text-xs text-gray-400 flex items-center gap-2">
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border border-accent border-t-transparent" />
+          {m.kind === "image" ? "🎨" : "🎬"} {label}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="mb-3 overflow-hidden rounded-2xl border border-line bg-base/60">
+      {m.kind === "image" ? (
+        <a href={m.url} target="_blank" rel="noreferrer" title="Open full-size">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={m.url} alt={m.prompt ?? "Generated image"} className="block w-full max-w-lg" />
+        </a>
+      ) : (
+        <video src={m.url} controls playsInline preload="metadata" className="block w-full max-w-lg bg-black" />
+      )}
+      <div className="flex items-center gap-2 px-3.5 py-2 text-[11px] text-gray-500">
+        <span className="truncate flex-1">
+          {m.kind === "image" ? "🎨" : "🎬"} {m.prompt}
+        </span>
+        {m.stored === "r2" && <span className="shrink-0" title="Saved to your library">☁️</span>}
+        <a
+          href={m.url}
+          target="_blank"
+          rel="noreferrer"
+          download
+          title="Download"
+          className="shrink-0 text-gray-500 hover:text-white transition"
+        >
+          <Download size={13} />
+        </a>
+      </div>
+    </div>
+  );
+}
 
 function ToolPills({ tools }: { tools: { name: string; ok: boolean }[] }) {
   return (
@@ -225,6 +289,13 @@ export default function MessageBubble({
       {msg.think && <ThinkingPanel state={msg.think} replayEvents={msg.think.events} />}
       {msg.arena && <ArenaPanel state={msg.arena} replayEvents={msg.arena.events} />}
       {msg.tools && msg.tools.length > 0 && <ToolPills tools={msg.tools} />}
+      {msg.media && msg.media.length > 0 && (
+        <div className="space-y-3">
+          {msg.media.map((m, i) => (
+            <MediaBlock key={i} m={m} />
+          ))}
+        </div>
+      )}
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: CodePre as any }}>
         {msg.content || "…"}
       </ReactMarkdown>

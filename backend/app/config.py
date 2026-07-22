@@ -231,10 +231,26 @@ class Settings(BaseSettings):
     FCM_SERVICE_ACCOUNT_JSON: str = ""  # entire service-account JSON as one env string
     NOTIFY_COOLDOWN_SECONDS: int = 300  # per user+kind, process-local
 
-    # Video generation (provider seam: xai today; runway/pika as env becomes available)
-    VIDEO_PROVIDER: str = "xai"
+    # Video generation — comma-chain of providers, first that succeeds wins:
+    #   "reel"        = zero-key Mood Reel (FLUX scene stills → ffmpeg Ken Burns mp4)
+    #   "pollinations"= gen.pollinations.ai video models (needs POLLINATIONS_API_KEY)
+    #   "xai"         = Grok video when credits exist
+    # Default ships "reel" so chat video works TODAY with no keys; "xai,reel" once funded.
+    VIDEO_PROVIDER: str = "reel"
     MODEL_VIDEO: str = "grok-video-1"
+    POLLINATIONS_API_KEY: str = ""
+    POLLINATIONS_VIDEO_URL: str = "https://gen.pollinations.ai/video"
+    POLLINATIONS_VIDEO_MODEL: str = "wan-fast"
     VIDEO_MAX_WAIT_SECONDS: int = 240
+    # 🎬 Mood Reel composer (ffmpeg present in both deploy images — verified)
+    REEL_ENABLED: bool = True
+    REEL_MAX_SCENES: int = 5
+
+    # 🎨🎬 In-chat creation (v1.9.7): type "create an image of…" / "make a video of…"
+    # in any chat and Mood generates inline. Zero-cost heuristic router (no LLM spent).
+    CHAT_MEDIA: bool = True
+    CHAT_IMAGE_RATE_PER_MIN: int = 8
+    CHAT_VIDEO_RATE_PER_MIN: int = 2
     # Cinema Sound: AI voiceover + ambience muxed onto generated video (ffmpeg)
     FFMPEG_PATH: str = "ffmpeg"
     MEDIA_DIR: str = "/tmp/mood-media"      # muxed videos served from /media/files/{name}

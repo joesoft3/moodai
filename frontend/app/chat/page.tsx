@@ -40,6 +40,7 @@ export default function ChatPage() {
   const [billingCta, setBillingCta] = useState<"" | "upgrade">("");
   const [teamConvs, setTeamConvs] = useState<{ id: string; title: string; author: string }[] | null>(null);
   const [showTeam, setShowTeam] = useState(false);
+  const [draft, setDraft] = useState<{ text: string; nonce: number } | undefined>(undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastLoaded = useRef<string | null>(null);
   const skipNextLoad = useRef(false);
@@ -183,6 +184,7 @@ export default function ChatPage() {
                       events: [{ type: "thinking_end", ...(meta as any) }],
                     }
                   : undefined,
+              media: Array.isArray(meta.media) && meta.media.length > 0 ? meta.media : undefined,
             };
           })
         );
@@ -318,6 +320,23 @@ export default function ChatPage() {
                 usage: ev.usage,
                 events: [...(m.arena?.events ?? []), ev as ArenaEvt],
               },
+            }));
+          // 🎨🎬 in-chat creation (image/video generated inline)
+          if (ev.type === "media_start")
+            patchLast((m) => ({
+              ...m,
+              media: [{ kind: ev.kind ?? "image", prompt: ev.prompt ?? "", pending: true }],
+            }));
+          if (ev.type === "media_progress")
+            patchLast((m) =>
+              m.media?.length
+                ? { ...m, media: [{ ...m.media[0], stage: ev.stage, done: ev.done, total: ev.total, pending: true }] }
+                : m
+            );
+          if (ev.type === "media")
+            patchLast((m) => ({
+              ...m,
+              media: [{ kind: ev.kind ?? "image", url: ev.url, prompt: ev.prompt, stored: ev.stored, pending: false }],
             }));
           // 🧠 extended reasoning (grok-4 / grok-code-fast-1)
           if (ev.type === "thinking_start")
@@ -518,14 +537,16 @@ export default function ChatPage() {
       onUpload={uploadFile}
       onSend={(t, s) => send(t, s, false)}
       onVoice={handleVoice}
+      draft={draft}
       bare={bare}
     />
   );
 
   const chips = [
-    { Icon: Clapperboard, label: "Create Videos", onClick: () => router.push("/films") },
+    // 🎨🎬 in-chat creation: type it, get it — never leave the conversation
+    { Icon: ImageIcon, label: "Create image", onClick: () => setDraft({ text: "create an image of ", nonce: Date.now() }) },
+    { Icon: Clapperboard, label: "Create video", onClick: () => setDraft({ text: "create a video of ", nonce: Date.now() }) },
     { Icon: Brush, label: "Create design", onClick: () => router.push("/design") },
-    { Icon: ImageIcon, label: "Edit image", onClick: () => router.push("/images") },
     { Icon: AudioLines, label: "Voice", onClick: () => router.push("/voice") },
     { Icon: Telescope, label: "Deep research", onClick: () => setDeepMode(true) },
   ] as const;

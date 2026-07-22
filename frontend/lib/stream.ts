@@ -17,6 +17,7 @@ export interface ChatPayload {
   arena?: boolean;      // ⚔️ multi-model arena: providers debate, -4 judges
   arena_extra?: string; // extra provider (grok-code-fast-1 | gemini-2.5-flash) when keys exist
   rematch?: boolean;    // ⚔️ rematch — drafters try to beat the previous winner
+  mode?: string;        // 🎨🎬 force in-chat creation: "image" | "video" (undefined = auto-detect)
 }
 
 export interface ChatEvent {
@@ -67,6 +68,13 @@ export interface ChatEvent {
   warning?: string;
   usage?: Record<string, { in: number; out: number }>;
   error_code?: string;
+  // 🎨🎬 in-chat creation events (v1.9.7)
+  kind?: "image" | "video";  // media_start | media | media_progress
+  url?: string;              // media: render URL
+  prompt?: string;           // media_start | media: the cleaned generation prompt
+  stored?: string;           // media: r2 | local | hotlink
+  stage?: string;            // media_progress: scenes | compositing
+  done?: number;             // media_progress progress counter
 }
 
 async function sseErrorMessage(res: Response): Promise<string> {

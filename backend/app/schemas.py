@@ -59,6 +59,7 @@ class ChatRequest(BaseModel):
     arena: bool = False               # ⚔️ marker flag (mobile parity); routing uses the arena endpoint
     arena_extra: str | None = None    # extra arena panelist: gemini-2.5-flash | grok-code-fast-1
     rematch: bool = False             # ⚔️ rematch: drafters try to beat the previous arena winner
+    mode: str | None = None           # 🎨🎬 v1.9.7: force "image" | "video" in-chat creation (None = auto-detect)
 
 
 class WorkspaceCreate(BaseModel):
