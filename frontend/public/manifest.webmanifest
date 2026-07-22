@@ -1,7 +1,7 @@
 {
-  "name": "Nova AI",
-  "short_name": "Nova",
-  "description": "Grok-class AI assistant — chat, live search, memory, voice, files and images.",
+  "name": "Mood AI",
+  "short_name": "Mood AI",
+  "description": "Mood AI — understand, adapt, elevate. Chat, live search, memory, voice, files and images.",
   "start_url": "/chat",
   "display": "standalone",
   "background_color": "#0b0f14",

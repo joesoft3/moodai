@@ -69,13 +69,14 @@ export function useBrand(): Brand | null {
   return brand;
 }
 
-/** Logo img when the brand has one, else the ✦ mark. */
+/** Logo img when the brand has one, else the official Mood AI mark (public/icon.png). */
 export function BrandMark({ brand, size = "h-7 w-7" }: { brand: Brand | null; size?: string }) {
   if (brand?.logo_data) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={brand.logo_data} alt={brand.brand_name} className={`${size} rounded-md object-contain shrink-0`} />;
   }
-  return <span className="text-accent text-lg leading-none shrink-0">✦</span>;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/icon.png" alt="Mood AI" className={`${size} rounded-md object-contain shrink-0`} />;
 }
 
 export const DEFAULT_BRAND_NAME = "Mood AI";
