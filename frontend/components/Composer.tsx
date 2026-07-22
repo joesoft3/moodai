@@ -32,6 +32,8 @@ interface Props {
   onUpload: (f: File) => Promise<void>;
   onSend: (text: string, search: boolean) => Promise<void>;
   onVoice: (blob: Blob) => Promise<void>;
+  /** 🏠 bare = rendered inside the Grok-style centered empty home: no border-t strip. */
+  bare?: boolean;
 }
 
 export default function Composer({
@@ -53,6 +55,7 @@ export default function Composer({
   onUpload,
   onSend,
   onVoice,
+  bare = false,
 }: Props) {
   const [input, setInput] = useState("");
   const [searchOn, setSearchOn] = useState(true);
@@ -106,7 +109,7 @@ export default function Composer({
   }
 
   return (
-    <div className="border-t border-line bg-panel/80 backdrop-blur px-2 sm:px-3 py-2 sm:py-3 compact-v">
+    <div className={bare ? "w-full" : "border-t border-line bg-panel/80 backdrop-blur px-2 sm:px-3 py-2 sm:py-3 compact-v"}>
       <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-2">
         {files.length > 0 && (
           <div className="flex flex-wrap gap-2">
@@ -123,7 +126,7 @@ export default function Composer({
             ))}
           </div>
         )}
-        <div className="flex items-end gap-0.5 sm:gap-1 rounded-2xl border border-line bg-base px-1.5 sm:px-2 py-1.5 focus-within:border-accent/50 transition">
+        <div className="flex items-end gap-0.5 sm:gap-1 rounded-[1.6rem] border border-line bg-white/5 px-2 sm:px-3 py-1.5 shadow-[0_8px_30px_rgb(0_0_0/0.5)] focus-within:border-accent/60 focus-within:shadow-[0_8px_36px_-6px_rgb(var(--mood-accent)/0.35)] transition">
           <input
             ref={fileRef}
             type="file"
