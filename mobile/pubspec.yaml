@@ -1,7 +1,7 @@
 name: mood_ai_mobile
 description: Mood AI — Grok-class assistant (Flutter mobile client for the Mood API).
 publish_to: "none"
-version: 1.9.0+20
+version: 1.9.4+22
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
