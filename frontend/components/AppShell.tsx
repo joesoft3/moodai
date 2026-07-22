@@ -9,6 +9,11 @@ import ConversationList from "./ConversationList";
 import { API, apiFetch, token } from "@/lib/api";
 import { applyAccent, applyFavicon, BrandMark } from "@/lib/brand";
 
+// 👑 The owner panel entry points (floating button + drawer link) are shown ONLY
+// to the deployment owner's own login — not merely to any is_admin account.
+// Override per white-label deployment with NEXT_PUBLIC_OWNER_EMAIL.
+const OWNER_EMAIL = (process.env.NEXT_PUBLIC_OWNER_EMAIL ?? "joesoft2024@gmail.com").toLowerCase();
+
 const NAV = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/voice", label: "Voice", icon: AudioLines },
@@ -57,11 +62,13 @@ export default function AppShell({
     if (!token.get()) router.push("/login");
   }, [router]);
 
-  // Owner panel entry for admins (server double-checks on every /admin call)
+  // Owner panel entry: visible ONLY to the owner email (server still
+  // double-checks is_admin on every /admin API call — this gate is purely
+  // about who SEES the button)
   useEffect(() => {
     if (!token.get()) return;
-    apiFetch<{ is_admin?: boolean }>("/auth/me")
-      .then((m) => setIsAdmin(Boolean(m.is_admin)))
+    apiFetch<{ is_admin?: boolean; email?: string }>("/auth/me")
+      .then((m) => setIsAdmin(Boolean(m.is_admin) && (m.email ?? "").toLowerCase() === OWNER_EMAIL))
       .catch(() => {});
   }, []);
 
