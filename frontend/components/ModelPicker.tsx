@@ -56,7 +56,7 @@ export default function ModelPicker({
               key={o.id}
               onClick={() => setModel(o.id)}
               title={`${o.label} — ${o.hint}`}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition flex items-center gap-1 ${
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition flex items-center gap-1 shrink-0 whitespace-nowrap ${
                 model === o.id && !arenaMode
                   ? "bg-accent text-black"
                   : "text-gray-400 hover:text-white hover:bg-white/5"
