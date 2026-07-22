@@ -6,20 +6,24 @@ from app.config import Settings, settings
 from app.services.llm import llm
 
 
-def _env(monkeypatch, provider="gemini", model="gemini-2.5-flash", key="gk"):
+def _env(monkeypatch, provider="gemini", model="gemini-2.5-flash", pro="gemini-2.5-pro", key="gk"):
     monkeypatch.setattr(settings, "LLM_FALLBACK_PROVIDER", provider)
     monkeypatch.setattr(settings, "LLM_FALLBACK_MODEL", model)
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODEL_PRO", pro)
     monkeypatch.setattr(settings, "GEMINI_API_KEY", key)
 
 
 def test_failover_swaps_default_chat(monkeypatch):
     _env(monkeypatch)
-    assert llm._failover(None, "grok-4") == ("gemini", "gemini-2.5-flash")
+    # flagship class → pro bucket (better answers + separate 429 pool)
+    assert llm._failover(None, "grok-4") == ("gemini", "gemini-2.5-pro")
 
 
 def test_failover_swaps_explicit_xai_picker_tiers(monkeypatch):
     _env(monkeypatch)
+    # fast/mini class stays on the cheap fast bucket
     assert llm._failover("xai", "grok-4-fast") == ("gemini", "gemini-2.5-flash")
+    assert llm._failover("xai", "grok-3-mini") == ("gemini", "gemini-2.5-flash")
 
 
 def test_failover_leaves_non_xai_providers_alone(monkeypatch):

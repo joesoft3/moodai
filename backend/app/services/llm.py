@@ -11,7 +11,7 @@ import logging
 import time
 from typing import Any, AsyncIterator
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
 
 from ..config import settings
 from ..core.metrics import LLM_CHUNKS, LLM_COUNT, LLM_LAT
@@ -65,13 +65,45 @@ class LLMService:
         """Stand-in provider while xAI is down/unfunded (LLM_FALLBACK_*).
 
         Static swap at the seam: any xAI-bound call is rerouted to the fallback
-        provider+model. Unset the envs and the primary stack resumes with zero
-        code changes. Metering still records the model actually used.
+        provider. Class-aware model mapping: picker fast/mini tiers stay on the
+        cheap fast bucket (LLM_FALLBACK_MODEL); flagship/chat/coding/deep-search
+        go to the pro bucket (LLM_FALLBACK_MODEL_PRO) for better answers — and the
+        two buckets have INDEPENDENT rate-limit pools. Unset the envs and the
+        primary stack resumes with zero code changes.
         """
         fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
         if fb and provider in (None, "xai") and settings.LLM_FALLBACK_MODEL and self.provider_available(fb):
-            return fb, settings.LLM_FALLBACK_MODEL
+            fastish = any(k in model.lower() for k in ("fast", "mini"))
+            pro = settings.LLM_FALLBACK_MODEL_PRO or settings.LLM_FALLBACK_MODEL
+            return fb, (settings.LLM_FALLBACK_MODEL if fastish else pro)
         return provider, model
+
+    def _fallback_sibling(self, provider: str | None, model: str) -> str | None:
+        """429 rescue inside the stand-in stack: swap to the sibling model bucket
+        (flash ↔ pro). Separate rate-limit pools, so one bucket being saturated
+        rarely means both are. Only applies to the configured fallback provider."""
+        fb = (settings.LLM_FALLBACK_PROVIDER or "").strip()
+        if not settings.LLM_FALLBACK_429_SWAP or not fb or provider != fb:
+            return None
+        fast, pro = settings.LLM_FALLBACK_MODEL, settings.LLM_FALLBACK_MODEL_PRO
+        if model == fast and pro:
+            return pro
+        if model == pro and fast and pro:
+            return fast
+        return None
+
+    async def _call_with_429_swap(self, provider: str | None, model: str, call):
+        """await call(model); if the stand-in stack 429s, retry ONCE on the sibling
+        bucket — instantly, no server-guided backoff sleep (the fallback client is
+        built with max_retries=0 precisely so the swap decides latency, not the SDK)."""
+        try:
+            return await call(model)
+        except RateLimitError:
+            sib = self._fallback_sibling(provider, model)
+            if not sib:
+                raise
+            log.warning("fallback 429 on %s → swapping to sibling bucket %s", model, sib)
+            return await call(sib)
 
     def client_for(self, provider: str | None) -> AsyncOpenAI:
         key = provider or "xai"
@@ -79,7 +111,12 @@ class LLMService:
             base_url, api_key = self._provider_specs()[key]
             if not api_key:
                 raise LLMNotConfigured(f"Provider '{key}' has no API key set.")
-            self._clients[key] = AsyncOpenAI(api_key=api_key, base_url=base_url)
+            # The stand-in stack rejects 429s immediately (max_retries=0): our
+            # _call_with_429_swap then rescues on the sibling bucket in ~0s instead
+            # of the SDK sleeping through server-guided retryDelays (measured: a
+            # naive retry turned a "Hello" into a 29.5s stall).
+            no_retry = key == (settings.LLM_FALLBACK_PROVIDER or "").strip()
+            self._clients[key] = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0 if no_retry else 2)
         return self._clients[key]
 
     @property
@@ -119,13 +156,17 @@ class LLMService:
             if think and provider in (None, "xai") and "mini" in model:
                 # only the mini family takes an explicit effort knob; grok-4 reasons by default
                 kwargs.setdefault("extra_body", {})["reasoning_effort"] = "high"
-            stream = await self.client_for(provider).chat.completions.create(
-                model=model,
-                messages=messages,
-                stream=True,
-                temperature=0.7,
-                stream_options={"include_usage": True},  # final chunk carries token usage
-                **kwargs,
+            stream = await self._call_with_429_swap(
+                provider,
+                model,
+                lambda m: self.client_for(provider).chat.completions.create(
+                    model=m,
+                    messages=messages,
+                    stream=True,
+                    temperature=0.7,
+                    stream_options={"include_usage": True},  # final chunk carries token usage
+                    **kwargs,
+                ),
             )
             usage: dict = {}
             async for chunk in stream:
@@ -169,11 +210,15 @@ class LLMService:
         LLM_COUNT.labels(model=m, kind="complete").inc()
         t0 = time.perf_counter()
         try:
-            resp = await self.client_for(provider).chat.completions.create(
-                model=m,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+            resp = await self._call_with_429_swap(
+                provider,
+                m,
+                lambda mm: self.client_for(provider).chat.completions.create(
+                    model=mm,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                ),
             )
             if usage_out is not None:
                 u = getattr(resp, "usage", None)
@@ -198,8 +243,12 @@ class LLMService:
         LLM_COUNT.labels(model=m, kind="complete").inc()
         t0 = time.perf_counter()
         try:
-            resp = await self.client_for(provider).chat.completions.create(
-                model=m, messages=messages, tools=tools, tool_choice="auto", temperature=0.2
+            resp = await self._call_with_429_swap(
+                provider,
+                m,
+                lambda mm: self.client_for(provider).chat.completions.create(
+                    model=mm, messages=messages, tools=tools, tool_choice="auto", temperature=0.2
+                ),
             )
             return resp.choices[0].message
         finally:
@@ -223,8 +272,12 @@ class LLMService:
             extra: dict[str, Any] = {}
             if provider in (None, "xai"):
                 extra["extra_body"] = {"search_parameters": SEARCH_PARAMS}
-            resp = await self.client_for(provider).chat.completions.create(
-                model=m, messages=messages, temperature=temperature, **extra
+            resp = await self._call_with_429_swap(
+                provider,
+                m,
+                lambda mm: self.client_for(provider).chat.completions.create(
+                    model=mm, messages=messages, temperature=temperature, **extra
+                ),
             )
             if usage_out is not None:
                 u = getattr(resp, "usage", None)

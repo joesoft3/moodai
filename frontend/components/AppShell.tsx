@@ -208,17 +208,19 @@ export default function AppShell({
         {/* Page content */}
         <div className="flex-1 min-h-0 flex flex-col">{children}</div>
 
-        {/* 👑 Owner panel floating button — admins only, hidden while inside /admin.
-            Mobile: parked just above the tab bar; desktop: bottom-right corner. */}
+        {/* 👑 Owner panel floating button — owner email only, hidden while inside /admin.
+            Mobile: compact circle, lifted clear above the quick-chips/model-picker/composer
+            stack (tab bar 3.5rem + composer ~6.5rem + chips ~2.6rem ≈ 12.6rem) so it can
+            never block the send button; desktop: labelled pill in the bottom-right corner. */}
         {isAdmin && pathname !== "/admin" && (
           <Link
             href="/admin"
             aria-label="Open owner panel"
             title="Owner panel"
-            className="touch-manipulation absolute z-30 right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-6 md:right-6 flex items-center gap-2 rounded-full bg-accent text-black font-semibold pl-3.5 pr-4 py-3 shadow-[0_10px_28px_rgba(0,0,0,0.5)] ring-1 ring-white/20 hover:brightness-110 hover:scale-[1.04] active:scale-95 transition"
+            className="touch-manipulation absolute z-30 right-3 bottom-[calc(13rem+env(safe-area-inset-bottom))] md:right-6 md:bottom-6 flex items-center gap-2 rounded-full bg-accent text-black font-semibold p-3 md:pl-3.5 md:pr-4 md:py-3 shadow-[0_10px_28px_rgba(0,0,0,0.5)] ring-1 ring-white/20 hover:brightness-110 hover:scale-[1.04] active:scale-95 transition"
           >
             <ShieldCheck size={18} />
-            <span className="text-xs tracking-wide">Admin</span>
+            <span className="hidden md:inline text-xs tracking-wide">Admin</span>
           </Link>
         )}
 

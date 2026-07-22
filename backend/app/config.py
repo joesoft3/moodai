@@ -78,7 +78,9 @@ class Settings(BaseSettings):
     # instead. Perfect for "xAI credits not purchased yet" or provider outages.
     # Unset both and the Grok primary stack resumes instantly.
     LLM_FALLBACK_PROVIDER: str = ""   # e.g. "gemini" (needs that provider's API key set)
-    LLM_FALLBACK_MODEL: str = ""      # one model for all fallback calls, e.g. "gemini-2.5-flash"
+    LLM_FALLBACK_MODEL: str = ""      # fast-tier fallback model, e.g. "gemini-2.5-flash" (picker fast/mini tiers land here)
+    LLM_FALLBACK_MODEL_PRO: str = "gemini-2.5-pro"  # flagship-class fallback model (default chat/coding/deep-search land here)
+    LLM_FALLBACK_429_SWAP: bool = True  # on a rate-limit, retry once instantly on the sibling bucket (flash↔pro = separate quotas)
 
     # Durable file storage — local disk by default; Cloudflare R2 (S3-compatible,
     # zero egress fees) when the R2_* envs are set. DB rows that hold files keep a
