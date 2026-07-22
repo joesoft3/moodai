@@ -102,13 +102,26 @@ async def get_or_create_conversation(
     return conv, True
 
 
-async def _guarded(coro, label: str):
-    """Best-effort context source with a HARD time budget. An unreachable vector
-    store previously stalled first-token by ~25s; now any source that can't answer
-    within CONTEXT_BUDGET_S is simply skipped — the chat goes out without it."""
+# Circuit breakers for context sources: once a source proves unreachable, every
+# later request skips it INSTANTLY for CONTEXT_BREAKER_S seconds instead of each
+# paying the 4s timeout. (Measured: dead vector store = 8s/request in pure retries.)
+_breaks: dict[str, float] = {}
+
+
+async def _guarded(factory, label: str, breaker: str | None = None):
+    """Best-effort context source with a HARD time budget + circuit breaker.
+
+    `factory` is a zero-arg callable returning the coroutine (so an open breaker
+    never even creates it). Any source that fails or exceeds CONTEXT_BUDGET_S is
+    skipped; if `breaker` is given it opens for CONTEXT_BREAKER_S on failure."""
+    now = time.monotonic()
+    if breaker and _breaks.get(breaker, 0) > now:
+        return None  # circuit open — known-down source, zero cost
     try:
-        return await asyncio.wait_for(coro, timeout=settings.CONTEXT_BUDGET_S)
+        return await asyncio.wait_for(factory(), timeout=settings.CONTEXT_BUDGET_S)
     except Exception as e:
+        if breaker:
+            _breaks[breaker] = now + settings.CONTEXT_BREAKER_S
         log.warning("%s failed: %s", label, e)
         return None
 
@@ -135,8 +148,8 @@ async def build_messages(
     #    budget (they share the vector store; serialized dead-endpoint attempts
     #    were the measured ~25s first-token stall)
     mems, past = await asyncio.gather(
-        _guarded(retrieve_memories(user.id, message), "memory retrieval"),
-        _guarded(retrieve_past_chats(user.id, message, exclude_conv_id=conv_id), "chat recall"),
+        _guarded(lambda: retrieve_memories(user.id, message), "memory retrieval", breaker="qdrant"),
+        _guarded(lambda: retrieve_past_chats(user.id, message, exclude_conv_id=conv_id), "chat recall", breaker="qdrant"),
     )
     if mems:
         lines = "\n".join(f"- [{m.get('category', 'fact')}] {m.get('fact')}" for m in mems)
@@ -196,7 +209,7 @@ async def build_messages(
 
     # 2b) Doc-RAG: semantic retrieval over the rest of the user's document library
     #     (same vector store → same hard budget)
-    chunks = await _guarded(retrieve_doc_chunks(user.id, message, exclude_file_ids=attached_ids), "doc retrieval")
+    chunks = await _guarded(lambda: retrieve_doc_chunks(user.id, message, exclude_file_ids=attached_ids), "doc retrieval", breaker="qdrant")
     if chunks:
         block = "\n\n".join(f'[doc: {c["filename"]} · relevance {c["score"]}]\n{c["text"]}' for c in chunks)
         msgs.append(
