@@ -115,6 +115,39 @@ export default function AppShell({
     router.push("/login");
   }
 
+  // 🏠 Auto-return to the clean home after 5 minutes of inactivity.
+  // Conversations are never lost — they live in the ☰ history; this only resets
+  // the VIEW (dispatches mood:idle-reset, which the chat page honors when idle,
+  // and brings any other page back to /chat).
+  const IDLE_RESET_MS = 5 * 60 * 1000;
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let last = Date.now();
+    const goHome = () => {
+      last = Date.now();
+      window.dispatchEvent(new CustomEvent("mood:idle-reset"));
+      if (window.location.pathname !== "/chat") router.push("/chat");
+    };
+    const arm = () => {
+      last = Date.now();
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(goHome, IDLE_RESET_MS);
+    };
+    const onVisible = () => {
+      // back from a background tab after the idle window → snap home immediately
+      if (!document.hidden && Date.now() - last >= IDLE_RESET_MS) goHome();
+    };
+    const evts = ["pointerdown", "touchstart", "keydown", "wheel"];
+    evts.forEach((e) => window.addEventListener(e, arm, { passive: true, capture: true }));
+    document.addEventListener("visibilitychange", onVisible);
+    arm();
+    return () => {
+      if (timer) clearTimeout(timer);
+      evts.forEach((e) => window.removeEventListener(e, arm, { capture: true } as EventListenerOptions));
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [router]);
+
   const sideNav = (
     <div className="flex flex-col h-full">
       <div className="px-5 py-4 flex items-center gap-2 border-b border-line shrink-0">

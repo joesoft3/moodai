@@ -118,6 +118,22 @@ export default function ChatPage() {
     }
   }, [convs, activeId, setActiveId, wsId]);
 
+  // 🏠 Idle auto-reset: AppShell fires mood:idle-reset after 5 min of inactivity.
+  // We only comply when NOT streaming (never chop a live answer); the activeId→null
+  // effect above then clears the view back to the Grok-clean home, and the ☰
+  // history gets a debounced refresh ping so the chat is listed immediately.
+  useEffect(() => {
+    const h = () => {
+      if (busyRef.current) return;
+      setShowTeam(false);
+      setFiles([]);
+      setActiveId(null);
+      window.dispatchEvent(new CustomEvent("mood:conversations-changed"));
+    };
+    window.addEventListener("mood:idle-reset", h);
+    return () => window.removeEventListener("mood:idle-reset", h);
+  }, [setActiveId]);
+
   // Load messages whenever the globally-selected conversation changes
   useEffect(() => {
     if (!activeId) {
