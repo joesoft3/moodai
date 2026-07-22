@@ -123,10 +123,13 @@ export default function AppShell({
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let last = Date.now();
+    const navHome = () => {
+      if (window.location.pathname !== "/chat") router.push("/chat");
+    };
     const goHome = () => {
       last = Date.now();
       window.dispatchEvent(new CustomEvent("mood:idle-reset"));
-      if (window.location.pathname !== "/chat") router.push("/chat");
+      navHome();
     };
     const arm = () => {
       last = Date.now();
@@ -140,11 +143,14 @@ export default function AppShell({
     const evts = ["pointerdown", "touchstart", "keydown", "wheel"];
     evts.forEach((e) => window.addEventListener(e, arm, { passive: true, capture: true }));
     document.addEventListener("visibilitychange", onVisible);
+    // The chat view resets itself on this event; the shell mirrors the navigation side
+    window.addEventListener("mood:idle-reset", navHome);
     arm();
     return () => {
       if (timer) clearTimeout(timer);
       evts.forEach((e) => window.removeEventListener(e, arm, { capture: true } as EventListenerOptions));
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("mood:idle-reset", navHome);
     };
   }, [router]);
 
