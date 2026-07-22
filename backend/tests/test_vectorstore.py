@@ -94,6 +94,9 @@ class _FakeResult:
     def scalars(self):
         return self
 
+    def scalar(self):
+        return self._rows[0] if self._rows else None
+
 
 class FakeDB:
     """Records every execute(); returns queued canned results."""
@@ -118,6 +121,24 @@ class FakeDB:
 
 def _patch_db(monkeypatch, db):
     monkeypatch.setattr(vectorstore, "SessionLocal", lambda: db)
+
+
+def test_ensure_fast_path_skips_ddl_when_table_exists(monkeypatch):
+    """to_regclass says the table is there → no CREATE EXTENSION/TABLE traffic at all."""
+
+    class ExistsDB(FakeDB):
+        async def execute(self, sql, params=None):
+            self.calls.append((str(sql), params or {}))
+            if "to_regclass" in str(sql):
+                return _FakeResult(rows=["vector_points"])
+            return _FakeResult()
+
+    db = ExistsDB()
+    _patch_db(monkeypatch, db)
+    vs = PgVectorStore()
+    run(vs._ensure())
+    assert vs._ensured is True
+    assert all("CREATE" not in c[0] for c in db.calls)
 
 
 def test_query_points_maps_rows_and_sql(monkeypatch):

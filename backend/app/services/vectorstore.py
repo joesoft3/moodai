@@ -128,6 +128,16 @@ class PgVectorStore:
         async with self._lock:
             if self._ensured:
                 return
+            # Fast path: the table existing IS the invariant (live lesson — DDL on a
+            # waking Neon compute can take 4-9s; a to_regclass probe is ~50ms warm).
+            try:
+                async with SessionLocal() as db:
+                    exists = (await db.execute(sa.text("SELECT to_regclass('vector_points')"))).scalar()
+                if exists:
+                    self._ensured = True
+                    return
+            except Exception as e:
+                log.debug("vector fast-path probe failed: %s", e)
             dims = int(settings.EMBED_VECTOR_SIZE)
             last_err: Exception | None = None
             for _attempt in range(2):
