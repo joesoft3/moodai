@@ -44,25 +44,25 @@ def test_pro_env_empty_falls_back_to_single_bucket(monkeypatch):
     assert llm._failover(None, "grok-4") == ("gemini", "gemini-2.5-flash")
 
 
-# ---------- rescue-target mapping ----------
+# ---------- rescue-chain mapping ----------
 
 def test_rescue_swaps_fallback_buckets_both_ways(monkeypatch):
     _env(monkeypatch)
-    assert llm._rescue_target("gemini", "gemini-2.5-flash") == ("gemini", "gemini-2.5-pro")
-    assert llm._rescue_target("gemini", "gemini-2.5-pro") == ("gemini", "gemini-2.5-flash")
+    assert llm._rescue_chain("gemini", "gemini-2.5-flash") == [("gemini", "gemini-2.5-pro")]
+    assert llm._rescue_chain("gemini", "gemini-2.5-pro") == [("gemini", "gemini-2.5-flash")]
 
 
 def test_rescue_never_engages_outside_configured_providers(monkeypatch):
     _env(monkeypatch)
-    assert llm._rescue_target("xai", "grok-4") is None
-    assert llm._rescue_target(None, "grok-4") is None
-    assert llm._rescue_target("openai", "gpt-4o") is None
+    assert llm._rescue_chain("xai", "grok-4") == []
+    assert llm._rescue_chain(None, "grok-4") == []
+    assert llm._rescue_chain("openai", "gpt-4o") == []
 
 
 def test_rescue_respects_kill_switch(monkeypatch):
     _env(monkeypatch)
     monkeypatch.setattr(settings, "LLM_FALLBACK_429_SWAP", False)
-    assert llm._rescue_target("gemini", "gemini-2.5-flash") is None
+    assert llm._rescue_chain("gemini", "gemini-2.5-flash") == []
 
 
 # ---------- 429 rescue through complete() ----------

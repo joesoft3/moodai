@@ -84,6 +84,15 @@ class Settings(BaseSettings):
     ARENA_AI_BASE_URL: str = "https://api.arena.ai/v1"  # placeholder — no public endpoint exists yet
     ARENA_AI_MODEL: str = ""                             # flagship brain id; REQUIRED for the seam to engage
     ARENA_AI_MODEL_FAST: str = ""                        # optional fast tier; falls back to ARENA_AI_MODEL
+    # 🥈 FreeTheAi extra-brain seam (freetheai.xyz) — OpenAI-compatible free gateway.
+    # Dormant until FREETHEAI_API_KEY + FREETHEAI_MODEL are set; then it joins the
+    # brain cascade (after the LLM_FALLBACK_* stack) as always-on extra capacity.
+    # NOTE: free keys need a daily /checkin in their Discord — if it lapses, the
+    # gateway 401s and the cascade simply falls through to the next tier.
+    FREETHEAI_API_KEY: str = ""
+    FREETHEAI_BASE_URL: str = "https://api.freetheai.xyz/v1"
+    FREETHEAI_MODEL: str = ""        # flagship-class alias, e.g. "opc/deepseek-v4-flash-free"
+    FREETHEAI_MODEL_FAST: str = ""   # optional fast tier; falls back to FREETHEAI_MODEL
     LLM_FALLBACK_PROVIDER: str = ""   # e.g. "gemini" (needs that provider's API key set)
     LLM_FALLBACK_MODEL: str = ""      # fast-tier fallback model, e.g. "gemini-2.5-flash" (picker fast/mini tiers land here)
     LLM_FALLBACK_MODEL_PRO: str = "gemini-2.5-pro"  # flagship-class fallback model (default chat/coding/deep-search land here)
