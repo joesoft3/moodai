@@ -6,8 +6,10 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from datetime import date, datetime, timezone
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
@@ -252,10 +254,9 @@ async def build_messages(
 
 
 async def generate_title(conv_id: str, first_msg: str) -> None:
-    # Quota economy: on the stand-in stack (LLM_FALLBACK_PROVIDER) the shared key
-    # may be on a tiny daily budget — the seeded title (first words of the chat,
-    # set at conversation creation) is kept and the LLM prettifier is skipped.
-    if (settings.LLM_FALLBACK_PROVIDER or "").strip():
+    # Quota economy (QUOTA_ECONOMY=1): keep the seeded first-words title and skip the
+    # LLM prettifier as a daily-budget shield. Off by default — pretty titles stay live.
+    if settings.QUOTA_ECONOMY:
         return
     try:
         title = (
@@ -423,8 +424,48 @@ async def chat_stream(
     )
 
 
+async def _persist_generated_image(db: AsyncSession, user: User, url: str) -> tuple[str, str]:
+    """Archive a generated image: download the bytes → durable storage (R2/local) →
+    FileAsset row so it lives in the user's library. Returns (render_url, stored_kind) —
+    falls back to the provider hotlink on ANY hiccup (generation never fails because
+    archiving did)."""
+    if not settings.IMAGE_PERSIST:
+        return url, "hotlink"
+    try:
+        import base64
+
+        from ...services import storage
+
+        if url.startswith("data:"):
+            head, _, b64 = url.partition(",")
+            mime = (head[5:].split(";")[0] or "image/png").strip()
+            data = base64.b64decode(b64)
+        else:
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+                mime = (r.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
+                data = r.content
+        if not data or not mime.startswith("image/") or len(data) > settings.MAX_UPLOAD_MB * 1024 * 1024:
+            return url, "hotlink"
+        ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}.get(mime, "jpg")
+        fname = f"mood-gen-{uuid.uuid4().hex[:12]}.{ext}"
+        marker = await storage.put_upload(user.id, fname, data)
+        db.add(FileAsset(user_id=user.id, filename=fname, mime=mime, path=marker, size_bytes=len(data)))
+        await db.commit()
+        fresh = await storage.presigned_url(marker, settings.IMAGE_PERSIST_TTL_S)
+        return (fresh or url), ("r2" if storage.is_remote(marker) else "local")
+    except Exception as e:
+        log.warning("image persistence skipped (serving provider link): %s", e)
+        return url, "hotlink"
+
+
 @router.post("/image")
-async def generate_image(req: ImageRequest, user: User = Depends(get_current_user)):
+async def generate_image(
+    req: ImageRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     await enforce_rate_limit(f"img:{user.id}", 10 * plan_rate_mult(user.plan))
     try:
         url = await llm.generate_image(req.prompt)
@@ -432,5 +473,6 @@ async def generate_image(req: ImageRequest, user: User = Depends(get_current_use
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, friendly_ai_error(e))
     if not url:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Image provider returned no image")
+    render_url, stored = await _persist_generated_image(db, user, url)
     await record_usage(user.id, "image", settings.MODEL_IMAGE)
-    return {"url": url, "prompt": req.prompt}
+    return {"url": render_url, "prompt": req.prompt, "stored": stored, "source_url": url}

@@ -99,6 +99,12 @@ class Settings(BaseSettings):
     LLM_FALLBACK_429_SWAP: bool = True  # on a rate-limit, retry once instantly on the sibling bucket (flash↔pro = separate quotas)
     CONTEXT_BUDGET_S: float = 4.0       # hard per-source time budget for memory/recall/doc retrieval (vector store may be unreachable — never stall first-token)
     CONTEXT_BREAKER_S: float = 300.0    # after a context source fails, skip it instantly for this long (circuit breaker)
+    # 🧠 Vector store backend — "auto": pgvector inside the Postgres you already own
+    # (zero extra infra); a real external Qdrant (QDRANT_URL ≠ localhost) wins when set.
+    VECTOR_BACKEND: str = "auto"        # auto | pgvector | qdrant
+    EMBED_PROVIDER: str = "auto"        # auto | gemini | fastembed | openai — auto prefers Gemini (free, no 90MB ONNX download)
+    GEMINI_EMBED_MODEL: str = "gemini-embedding-001"  # dims pinned to EMBED_VECTOR_SIZE (table stays consistent)
+    QUOTA_ECONOMY: bool = False         # True = pause fact-extraction + title prettifier (daily-budget shield for tiny keys)
 
     # Durable file storage — local disk by default; Cloudflare R2 (S3-compatible,
     # zero egress fees) when the R2_* envs are set. DB rows that hold files keep a
@@ -129,6 +135,10 @@ class Settings(BaseSettings):
     IMAGE_FALLBACK_PROVIDER: str = ""
     POLLINATIONS_IMAGE_URL: str = "https://image.pollinations.ai/prompt"
     POLLINATIONS_MODEL: str = "flux"
+    # 🖼️ Generated images: archive a durable copy to object storage (R2/local) + file it
+    # in the user's library, instead of relying on provider hotlinks that can go stale.
+    IMAGE_PERSIST: bool = True
+    IMAGE_PERSIST_TTL_S: int = 604_800  # render-link TTL — SigV4 presign max = 7 days
     ROUTE_MODEL_CHAT: str = ""
 
     # Web search: "xai_live" (built in) or "tavily"

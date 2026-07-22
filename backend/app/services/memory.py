@@ -1,15 +1,17 @@
-"""Long-term memory: extract durable user facts with a cheap model, embed locally,
-store/retrieve in Qdrant (per-user scoped).
+"""Long-term memory: extract durable user facts with a cheap model, embed, and
+store/retrieve semantically (per-user scoped).
 
-First local embed triggers a one-time ~90 MB ONNX model download (fastembed).
+Vector store (one factory — `qdrant()` — picks it; see services/vectorstore.py):
+1. pgvector inside the app's own Postgres when no external Qdrant is provisioned
+2. a real Qdrant when QDRANT_URL points at one
 
-Embedding backends (auto, in order):
-1. fastembed local ONNX — full hosts (Docker, Railway, dev machines)
-2. OpenAI-compatible /embeddings API (OPENAI_BASE_URL + EMBED_API_MODEL,
-   pinned to EMBED_VECTOR_SIZE dims so the Qdrant collection stays consistent)
-   — slim/serverless images where fastembed + onnxruntime don't fit (Vercel)
+Embedding backends (EMBED_PROVIDER; auto order):
+1. Gemini gemini-embedding-001 (GEMINI_API_KEY) — free, no model download, dims
+   pinned to EMBED_VECTOR_SIZE so points stay compatible across providers
+2. fastembed local ONNX — full hosts (first embed downloads ~90 MB once)
+3. OpenAI-compatible /embeddings API (OPENAI_BASE_URL + EMBED_API_MODEL)
 
-If neither is available, embed() raises EmbeddingUnavailable; callers already
+If none is available, embed() raises EmbeddingUnavailable; callers already
 fail-open so chat keeps working with memory/RAG simply disabled.
 """
 
@@ -51,12 +53,20 @@ class EmbeddingUnavailable(RuntimeError):
     """No embedding backend configured (no fastembed install, no API key)."""
 
 
-def qdrant() -> AsyncQdrantClient:
+def qdrant():
+    """Vector-store factory. Returns the real Qdrant client when an external server is
+    configured, else the pgvector facade (services/vectorstore.py) — both expose the
+    same small method surface, so every caller in memory/recall/rag stays agnostic."""
     global _qdrant
     if _qdrant is None:
-        # hard client timeout: an unreachable vector store must fail in seconds,
-        # never hold chat context assembly hostage (measured: dead endpoint ≈ 25s stall)
-        _qdrant = AsyncQdrantClient(url=settings.QDRANT_URL, timeout=4)
+        from .vectorstore import PgVectorStore, pgvector_active
+
+        if pgvector_active():
+            _qdrant = PgVectorStore()
+        else:
+            # hard client timeout: an unreachable vector store must fail in seconds,
+            # never hold chat context assembly hostage (measured: dead endpoint ≈ 25s stall)
+            _qdrant = AsyncQdrantClient(url=settings.QDRANT_URL, timeout=4)
     return _qdrant
 
 
@@ -98,10 +108,55 @@ async def _embed_via_api(texts: list[str]) -> list[list[float]]:
     return [d["embedding"] for d in sorted(data, key=lambda d: d.get("index", 0))]
 
 
+async def _embed_via_gemini(texts: list[str]) -> list[list[float]]:
+    """Gemini embeddings (free tier) — dims pinned to EMBED_VECTOR_SIZE so the stored
+    points match the fastembed-era shape. Batch endpoint first, single calls as fallback."""
+    if not settings.GEMINI_API_KEY:
+        raise EmbeddingUnavailable("GEMINI_API_KEY not set")
+    model = settings.GEMINI_EMBED_MODEL
+
+    def _part(t: str) -> dict:
+        return {
+            "model": f"models/{model}",
+            "content": {"parts": [{"text": t[:9000]}]},
+            "outputDimensionality": int(settings.EMBED_VECTOR_SIZE),
+        }
+
+    base = f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(
+            f"{base}:batchEmbedContents",
+            params={"key": settings.GEMINI_API_KEY},
+            json={"requests": [_part(t) for t in texts]},
+        )
+        if r.status_code == 200:
+            embs = r.json().get("embeddings") or []
+            if len(embs) == len(texts):
+                return [[float(x) for x in e["values"]] for e in embs]
+            raise EmbeddingUnavailable("gemini batch returned an unexpected embedding count")
+        # 429s/errors surface here if singles fail too — callers' circuit breakers handle it
+        out: list[list[float]] = []
+        for t in texts:
+            rr = await client.post(f"{base}:embedContent", params={"key": settings.GEMINI_API_KEY}, json=_part(t))
+            rr.raise_for_status()
+            out.append([float(x) for x in rr.json()["embedding"]["values"]])
+        return out
+
+
 async def embed(texts: list[str]) -> list[list[float]]:
-    if TextEmbedding is not None:
+    provider = (settings.EMBED_PROVIDER or "auto").strip().lower()
+    if provider in ("auto", "gemini") and settings.GEMINI_API_KEY:
+        try:
+            return await _embed_via_gemini(texts)
+        except Exception as e:
+            if provider == "gemini":
+                raise EmbeddingUnavailable(f"gemini embeddings failed: {e}") from e
+            log.warning("gemini embeddings failed, trying next embedder: %s", e)
+    if provider in ("auto", "fastembed") and TextEmbedding is not None:
         return await asyncio.to_thread(_embed_sync, texts)
-    return await _embed_via_api(texts)
+    if provider in ("auto", "openai"):
+        return await _embed_via_api(texts)
+    raise EmbeddingUnavailable(f"no embedding backend available (EMBED_PROVIDER={provider})")
 
 
 async def init_memory_collection() -> None:
@@ -168,11 +223,10 @@ def _strip_fence(s: str) -> str:
 
 
 async def extract_and_store(user_id: str, user_msg: str, assistant_msg: str, plan: str = "free") -> None:
-    # Quota economy: while the stand-in stack (LLM_FALLBACK_PROVIDER) is active the
-    # shared key may be on a tiny daily budget — chat answers alone must consume it.
-    # Fact extraction (1 LLM call/message) pauses; it resumes the moment the primary
-    # stack is restored. Existing memories keep working (retrieval is unaffected).
-    if (settings.LLM_FALLBACK_PROVIDER or "").strip():
+    # Quota economy (QUOTA_ECONOMY=1): fact extraction (1 LLM call/message) pauses as a
+    # daily-budget shield for tiny provider keys; chat answers alone consume the quota.
+    # Off by default — memory writing stays live; retrieval is never affected either way.
+    if settings.QUOTA_ECONOMY:
         return
     try:
         raw = await llm.complete(

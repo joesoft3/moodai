@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
         watchdog.cancel()
 
 
-app = FastAPI(title="Mood AI API", version="1.9.3", lifespan=lifespan)
+app = FastAPI(title="Mood AI API", version="1.9.4", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
