@@ -178,3 +178,18 @@ def test_fallback_client_disables_sdk_retries(monkeypatch):
     llm._clients.pop("gemini", None)
     c = llm.client_for("gemini")
     assert c.max_retries == 0
+
+
+# ---------- free image stand-in while xAI images are unfunded ----------
+
+def test_image_pollinations_returns_ready_url(monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_FALLBACK_PROVIDER", "pollinations")
+    url = asyncio.run(llm.generate_image("a red panda coding on a laptop"))
+    assert url is not None and url.startswith("https://image.pollinations.ai/prompt/")
+    assert "a%20red%20panda" in url and "model=flux" in url and "nologo=true" in url
+
+
+def test_image_pollinations_off_by_default(monkeypatch):
+    from app.config import Settings
+    s = Settings(_env_file=None)
+    assert s.IMAGE_FALLBACK_PROVIDER == ""

@@ -332,6 +332,19 @@ class LLMService:
             LLM_LAT.labels(model=m, kind="search").observe(time.perf_counter() - t0)
 
     async def generate_image(self, prompt: str, **opts: Any) -> str | None:
+        # 🖼️ Free FLUX stand-in while xAI images are unfunded (xAI team credits = 0
+        # and every Gemini image model is quota-0 on this key — both verified live).
+        if (settings.IMAGE_FALLBACK_PROVIDER or "").strip() == "pollinations":
+            from urllib.parse import quote
+            import secrets
+
+            q = quote(prompt[:800])
+            seed = secrets.randbelow(10**9)
+            LLM_COUNT.labels(model=settings.POLLINATIONS_MODEL, kind="image").inc()
+            return (
+                f"{settings.POLLINATIONS_IMAGE_URL}/{q}"
+                f"?width=1024&height=1024&seed={seed}&model={settings.POLLINATIONS_MODEL}&nologo=true&enhance=true"
+            )
         m = settings.MODEL_IMAGE
         LLM_COUNT.labels(model=m, kind="image").inc()
         t0 = time.perf_counter()

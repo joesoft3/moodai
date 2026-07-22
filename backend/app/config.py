@@ -123,6 +123,12 @@ class Settings(BaseSettings):
     ROUTE_MODEL_CODING: str = ""      # e.g. gemini-2.5-pro | gpt-4o
     ROUTE_MODEL_AGENTS: str = ""
     ROUTE_MODEL_DEEPSEARCH: str = ""
+    # 🖼️ Free image stand-in while xAI image gen is unfunded. Pollinations serves
+    # real FLUX images with no key (probed live: HTTP 200, ~2s). When set to
+    # "pollinations", /chat/image returns a ready-to-render URL (same contract).
+    IMAGE_FALLBACK_PROVIDER: str = ""
+    POLLINATIONS_IMAGE_URL: str = "https://image.pollinations.ai/prompt"
+    POLLINATIONS_MODEL: str = "flux"
     ROUTE_MODEL_CHAT: str = ""
 
     # Web search: "xai_live" (built in) or "tavily"
