@@ -176,6 +176,41 @@ def test_lazy_ensure_creates_extension_and_table(monkeypatch):
     assert vs._ensured is True
 
 
+def test_ensure_self_heals_after_a_transient_failure(monkeypatch):
+    """Live bug: cold-boot DDL raced requests → breaker opened → memory-blind minutes.
+    A failed attempt must NOT mark the store ensured; the next call retries cleanly."""
+
+    class FlakyDB(FakeDB):
+        def __init__(self, results=()):
+            super().__init__(results)
+            self.boomed = 0
+
+        async def execute(self, sql, params=None):
+            if not self.boomed:
+                self.boomed += 1
+                raise RuntimeError("duplicate key: concurrent CREATE EXTENSION")
+            return await super().execute(sql, params)
+
+    db = FlakyDB()
+    _patch_db(monkeypatch, db)
+    vs = PgVectorStore()
+    run(vs.create_collection("user_memories"))  # first execute fails, retry succeeds
+    assert vs._ensured is True
+    assert any("CREATE EXTENSION" in c[0] for c in db.calls)
+
+
+def test_ensure_not_marked_after_hard_failure(monkeypatch):
+    class DeadDB(FakeDB):
+        async def execute(self, sql, params=None):
+            raise RuntimeError("db unreachable")
+
+    _patch_db(monkeypatch, DeadDB())
+    vs = PgVectorStore()
+    with pytest.raises(RuntimeError):
+        run(vs.create_collection("user_memories"))
+    assert vs._ensured is False  # next request gets a fresh chance
+
+
 # ---------------------------- Gemini embeddings ----------------------------
 
 class _Resp:

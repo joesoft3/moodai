@@ -264,12 +264,15 @@ async def generate_title(conv_id: str, first_msg: str) -> None:
                 [
                     {
                         "role": "user",
-                        "content": f"Give a short 3-6 word conversation title (no quotes) for a chat starting with:\n{first_msg[:300]}",
+                        "content": (
+                            "Write a short 3-6 word title naming the TOPIC of this chat "
+                            "(plain words, no quotes):\n" + first_msg[:300]
+                        ),
                     }
                 ],
-                max_tokens=20,
+                max_tokens=32,
             )
-        ).strip()
+        ).strip().strip('"').strip()
         async with SessionLocal() as s:
             c = await s.get(Conversation, conv_id)
             if c and title:

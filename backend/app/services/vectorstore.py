@@ -20,6 +20,7 @@ step still boot straight into a working brain.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -111,35 +112,56 @@ class PgVectorStore:
 
     def __init__(self) -> None:
         self._ensured = False
+        self._lock = asyncio.Lock()
 
     async def _ensure(self) -> None:
+        """One-time DDL (extension + table + index), serialized per process.
+
+        Bug found live: a cold boot raced this DDL *inside* a user's request (multiple
+        pending requests each ran it; one blocked past the 4s context budget → 300s
+        circuit breaker → first minutes after a deploy ran memory-blind). The lock +
+        retry make the race harmless: the loser re-runs idempotent DDL and succeeds.
+        `_ensured` flips ONLY on success, so a failed attempt always self-heals later.
+        """
         if self._ensured:
             return
-        dims = int(settings.EMBED_VECTOR_SIZE)
-        async with SessionLocal() as db:
-            await db.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
-            await db.execute(
-                sa.text(
-                    f"""
-                    CREATE TABLE IF NOT EXISTS vector_points (
-                        collection text NOT NULL,
-                        id text NOT NULL,
-                        embedding vector({dims}),
-                        payload jsonb NOT NULL DEFAULT '{{}}'::jsonb,
-                        created_at timestamptz NOT NULL DEFAULT now(),
-                        PRIMARY KEY (collection, id)
-                    )
-                    """
-                )
-            )
-            await db.execute(
-                sa.text(
-                    "CREATE INDEX IF NOT EXISTS vector_points_user_idx "
-                    "ON vector_points (collection, ((payload->>'user_id')))"
-                )
-            )
-            await db.commit()
-        self._ensured = True
+        async with self._lock:
+            if self._ensured:
+                return
+            dims = int(settings.EMBED_VECTOR_SIZE)
+            last_err: Exception | None = None
+            for _attempt in range(2):
+                try:
+                    async with SessionLocal() as db:
+                        await db.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
+                        await db.execute(
+                            sa.text(
+                                f"""
+                                CREATE TABLE IF NOT EXISTS vector_points (
+                                    collection text NOT NULL,
+                                    id text NOT NULL,
+                                    embedding vector({dims}),
+                                    payload jsonb NOT NULL DEFAULT '{{}}'::jsonb,
+                                    created_at timestamptz NOT NULL DEFAULT now(),
+                                    PRIMARY KEY (collection, id)
+                                )
+                                """
+                            )
+                        )
+                        await db.execute(
+                            sa.text(
+                                "CREATE INDEX IF NOT EXISTS vector_points_user_idx "
+                                "ON vector_points (collection, ((payload->>'user_id')))"
+                            )
+                        )
+                        await db.commit()
+                    self._ensured = True
+                    return
+                except Exception as e:  # concurrent bootstrap elsewhere — retry once
+                    last_err = e
+                    log.info("vector_points ensure attempt failed (retrying once): %s", e)
+                    await asyncio.sleep(0.3)
+            raise last_err  # type: ignore[misc]
 
     # ------------------------------------------------- collections (no-op-ish)
     async def get_collections(self) -> _Collections:
