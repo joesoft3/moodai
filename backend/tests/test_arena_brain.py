@@ -72,18 +72,18 @@ def test_explicit_non_xai_providers_untouched_by_arena(monkeypatch):
 
 def test_rescue_cascades_arena_flagship_to_pro_bucket(monkeypatch):
     _env(monkeypatch)
-    assert llm._rescue_target("arena", "arena-1") == ("gemini", "gemini-2.5-pro")
+    assert llm._rescue_chain("arena", "arena-1") == [("gemini", "gemini-2.5-pro"), ("gemini", "gemini-2.5-flash")]
 
 
 def test_rescue_cascades_arena_fast_to_flash_bucket(monkeypatch):
     _env(monkeypatch)
-    assert llm._rescue_target("arena", "arena-1-fast") == ("gemini", "gemini-2.5-flash")
+    assert llm._rescue_chain("arena", "arena-1-fast") == [("gemini", "gemini-2.5-flash"), ("gemini", "gemini-2.5-pro")]
 
 
 def test_rescue_none_when_arena_has_no_backup(monkeypatch):
     _env(monkeypatch)
     monkeypatch.setattr(settings, "LLM_FALLBACK_PROVIDER", "")
-    assert llm._rescue_target("arena", "arena-1") is None
+    assert llm._rescue_chain("arena", "arena-1") == []
 
 
 def test_complete_cascades_arena_429_to_gemini(monkeypatch):

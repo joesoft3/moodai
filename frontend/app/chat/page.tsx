@@ -17,24 +17,6 @@ import ModelPicker from "@/components/ModelPicker";
 /** 🧠 Only these models support extended reasoning (grok-4-fast has no thinking trace). */
 const THINKABLE = ["grok-4", "auto", "grok-code-fast-1"];
 
-function EmptyState() {
-  return (
-    <div className="flex items-center justify-center min-h-[58vh] select-none">
-      {/* 🏠 Grok-clean home: the Mood AI ✦ mark itself as a faint, theme-aware
-          watermark (inline SVG → crisp at any density, currentColor in both themes) */}
-      <svg
-        viewBox="0 0 64 64"
-        aria-hidden
-        className="w-44 sm:w-56 opacity-[0.07] text-accent pointer-events-none"
-      >
-        <path
-          fill="currentColor"
-          d="M32 2c2.2 14.9 7.6 22.4 15 25.5C56 31 60 32 62 32c-2 0-6 1-15 4.5C39.6 39.6 34.2 47.1 32 62c-2.2-14.9-7.6-22.4-15-25.5C8 33 4 32 2 32c2 0 6-1 15-4.5C24.4 24.4 29.8 16.9 32 2Z"
-        />
-      </svg>
-    </div>
-  );
-}
 
 export default function ChatPage() {
   const router = useRouter();
@@ -135,6 +117,22 @@ export default function ChatPage() {
       /* storage unavailable */
     }
   }, [convs, activeId, setActiveId, wsId]);
+
+  // 🏠 Idle auto-reset: AppShell fires mood:idle-reset after 5 min of inactivity.
+  // We only comply when NOT streaming (never chop a live answer); the activeId→null
+  // effect above then clears the view back to the Grok-clean home, and the ☰
+  // history gets a debounced refresh ping so the chat is listed immediately.
+  useEffect(() => {
+    const h = () => {
+      if (busyRef.current) return;
+      setShowTeam(false);
+      setFiles([]);
+      setActiveId(null);
+      window.dispatchEvent(new CustomEvent("mood:conversations-changed"));
+    };
+    window.addEventListener("mood:idle-reset", h);
+    return () => window.removeEventListener("mood:idle-reset", h);
+  }, [setActiveId]);
 
   // Load messages whenever the globally-selected conversation changes
   useEffect(() => {
@@ -479,6 +477,59 @@ export default function ChatPage() {
     }
   }
 
+  const emptyHome = msgs.length === 0;
+
+  const pickerEl = (bare: boolean) =>
+    !deepMode && (
+      <ModelPicker
+        model={model}
+        setModel={setModel}
+        thinkOn={thinkOn}
+        toggleThink={() => setThinkOn((v) => !v)}
+        thinkSupported={arenaMode ? false : THINKABLE.includes(model)}
+        arenaMode={arenaMode}
+        toggleArena={() => {
+          setArenaMode((v) => !v);
+          setAgentModeState(false);
+        }}
+        arenaExtra={arenaExtra}
+        setArenaExtra={setArenaExtra}
+        bare={bare}
+      />
+    );
+
+  const composerEl = (bare: boolean) => (
+    <Composer
+      busy={busy}
+      onStop={stop}
+      voiceMode={voiceMode}
+      setVoiceMode={setVoiceMode}
+      agentMode={agentMode}
+      setAgentMode={setAgentMode}
+      deepMode={deepMode}
+      setDeepMode={setDeepMode}
+      model={model}
+      arenaMode={arenaMode}
+      thinkOn={thinkOn && THINKABLE.includes(model) && !arenaMode}
+      pluginMode={pluginMode}
+      setPluginMode={setPluginMode}
+      files={files}
+      onRemoveFile={(id) => setFiles((f) => f.filter((x) => x.id !== id))}
+      onUpload={uploadFile}
+      onSend={(t, s) => send(t, s, false)}
+      onVoice={handleVoice}
+      bare={bare}
+    />
+  );
+
+  const chips = [
+    { Icon: Clapperboard, label: "Create Videos", onClick: () => router.push("/films") },
+    { Icon: Brush, label: "Create design", onClick: () => router.push("/design") },
+    { Icon: ImageIcon, label: "Edit image", onClick: () => router.push("/images") },
+    { Icon: AudioLines, label: "Voice", onClick: () => router.push("/voice") },
+    { Icon: Telescope, label: "Deep research", onClick: () => setDeepMode(true) },
+  ] as const;
+
   return (
     <AppShell title={activeTitle || "Mood Chat"}>
       {/* conversation toolbar — always visible; Share/Export need a live conversation */}
@@ -583,7 +634,36 @@ export default function ChatPage() {
       )}
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-3 sm:px-4 py-6 compact-v">
         <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-6">
-          {msgs.length === 0 && <EmptyState />}
+          {emptyHome && (
+            <div className="min-h-[calc(100dvh-12rem)] md:min-h-[calc(100dvh-9rem)] flex flex-col items-center justify-center gap-5 py-6">
+              {/* 🏠 Grok homepage: official mark + wordmark, then the pill composer CENTERED */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/icon.png"
+                alt="Mood AI"
+                className="select-none w-20 sm:w-24 rounded-[1.4rem] ring-1 ring-white/10 shadow-[0_0_90px_-18px_rgb(var(--mood-accent)/0.65)]"
+              />
+              <div className="select-none flex flex-col items-center gap-1.5 -mt-1 mb-1">
+                <span className="text-xl font-semibold tracking-tight">Mood AI</span>
+                <span className="text-[9px] sm:text-[10px] tracking-[0.38em] text-gray-500 uppercase">
+                  Understand · Adapt · Elevate
+                </span>
+              </div>
+              <div className="w-full max-w-2xl">{composerEl(true)}</div>
+              <div className="w-full max-w-2xl flex flex-wrap items-center justify-center gap-2">
+                {chips.map(({ Icon, label, onClick }) => (
+                  <button
+                    key={label}
+                    onClick={onClick}
+                    className="touch-manipulation flex items-center gap-1.5 rounded-full bg-white/5 border border-line px-3.5 py-2 text-xs text-gray-400 hover:border-accent/50 hover:text-white transition whitespace-nowrap"
+                  >
+                    <Icon size={13} className="text-gray-500" /> {label}
+                  </button>
+                ))}
+              </div>
+              {pickerEl(true)}
+            </div>
+          )}
           {msgs.map((m, i) => (
             <MessageBubble
               key={i}
@@ -601,65 +681,12 @@ export default function ChatPage() {
           <div ref={bottomRef} />
         </div>
       </div>
-      {/* 🏠 Grok-style quick-launch chips — only on the clean empty home */}
-      {msgs.length === 0 && (
-        <div className="px-3 sm:px-4 pb-2 shrink-0">
-          <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {([
-              { Icon: Clapperboard, label: "Create Videos", onClick: () => router.push("/films") },
-              { Icon: Brush, label: "Create design", onClick: () => router.push("/design") },
-              { Icon: ImageIcon, label: "Edit image", onClick: () => router.push("/images") },
-              { Icon: AudioLines, label: "Voice", onClick: () => router.push("/voice") },
-              { Icon: Telescope, label: "Deep research", onClick: () => setDeepMode(true) },
-            ] as const).map(({ Icon, label, onClick }) => (
-              <button
-                key={label}
-                onClick={onClick}
-                className="flex items-center gap-1.5 rounded-full bg-white/[0.06] border border-white/10 px-3.5 py-2 text-xs text-gray-300 hover:border-accent/40 hover:text-white transition whitespace-nowrap shrink-0"
-              >
-                <Icon size={13} className="text-gray-500" /> {label}
-              </button>
-            ))}
-          </div>
-        </div>
+      {!emptyHome && (
+        <>
+          {pickerEl(false)}
+          {composerEl(false)}
+        </>
       )}
-      {/* 🧠 model picker + thinking + ⚔️ arena controls (hidden while deepsearching — it has its own pipeline) */}
-      {!deepMode && (
-        <ModelPicker
-          model={model}
-          setModel={setModel}
-          thinkOn={thinkOn}
-          toggleThink={() => setThinkOn((v) => !v)}
-          thinkSupported={arenaMode ? false : THINKABLE.includes(model)}
-          arenaMode={arenaMode}
-          toggleArena={() => {
-            setArenaMode((v) => !v);
-            setAgentModeState(false);
-          }}
-          arenaExtra={arenaExtra}
-          setArenaExtra={setArenaExtra}
-        />
-      )}
-      <Composer
-        busy={busy}
-        onStop={stop}
-        voiceMode={voiceMode}
-        setVoiceMode={setVoiceMode}
-        agentMode={agentMode}
-        setAgentMode={setAgentMode}
-        deepMode={deepMode}
-        setDeepMode={setDeepMode}
-        model={model}
-        arenaMode={arenaMode}
-        thinkOn={thinkOn && THINKABLE.includes(model) && !arenaMode}
-        pluginMode={pluginMode}
-        setPluginMode={setPluginMode}
-        files={files}
-        onRemoveFile={(id) => setFiles((f) => f.filter((x) => x.id !== id))}
-        onUpload={uploadFile}
-        onSend={(t, s) => send(t, s, false)}
-        onVoice={handleVoice}
-      />
     </AppShell>
   );
 }

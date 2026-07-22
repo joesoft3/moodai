@@ -6,9 +6,9 @@
    Dark is the brand default. [data-theme="light"] flips surfaces + the
    readability overrides below (components stay theme-agnostic). */
 :root {
-  --mood-base: 11 15 20;       /* #0b0f14 */
-  --mood-panel: 18 24 31;      /* #12181f */
-  --mood-line: 30 41 59;       /* #1e293b */
+  --mood-base: 0 0 0;          /* #000000 — true black, Grok-style chrome */
+  --mood-panel: 10 10 10;      /* #0a0a0a — barely-elevated surfaces */
+  --mood-line: 38 38 38;       /* #262626 — neutral-800 hairlines */
   --mood-accent: 124 155 255;  /* #7c9bff */
   color-scheme: dark;
 }
@@ -38,7 +38,7 @@ body {
   height: 6px;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #263243;
+  background: #333333;
   border-radius: 3px;
 }
 [data-theme="light"] .scrollbar-thin::-webkit-scrollbar-thumb {
@@ -105,14 +105,14 @@ body {
   text-decoration: underline;
 }
 .msg code {
-  background: #1a2230;
+  background: #171717;
   padding: 0.1rem 0.35rem;
   border-radius: 0.25rem;
   font-size: 0.88em;
 }
 .msg pre {
-  background: #0f1520;
-  border: 1px solid #1e293b;
+  background: #0a0a0a;
+  border: 1px solid #262626;
   padding: 0.8rem;
   border-radius: 0.6rem;
   overflow-x: auto;
@@ -123,7 +123,7 @@ body {
   padding: 0;
 }
 .msg blockquote {
-  border-left: 3px solid #263243;
+  border-left: 3px solid #262626;
   padding-left: 0.8rem;
   color: #9ca3af;
   margin: 0.6em 0;
@@ -135,11 +135,11 @@ body {
 }
 .msg th,
 .msg td {
-  border: 1px solid #263243;
+  border: 1px solid #262626;
   padding: 0.3rem 0.6rem;
 }
 .msg th {
-  background: #12181f;
+  background: #111111;
 }
 
 /* voice orb animations */

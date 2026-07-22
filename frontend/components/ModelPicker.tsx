@@ -30,6 +30,8 @@ interface Props {
   toggleArena: () => void;
   arenaExtra: string;
   setArenaExtra: (v: string) => void;
+  /** 🏠 bare = transparent + centered, for the Grok-style empty home. */
+  bare?: boolean;
 }
 
 /** Compact model / thinking / arena control row above the composer. */
@@ -43,17 +45,18 @@ export default function ModelPicker({
   toggleArena,
   arenaExtra,
   setArenaExtra,
+  bare = false,
 }: Props) {
   return (
-    <div className="border-t border-line bg-panel/60 backdrop-blur px-2 sm:px-3 pt-2 compact-v">
-      <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto flex items-center gap-1.5 sm:flex-wrap flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex items-center gap-1 rounded-full bg-base border border-line p-1 shrink-0">
+    <div className={bare ? "w-full" : "border-t border-line bg-panel/60 backdrop-blur px-2 sm:px-3 pt-2 compact-v"}>
+      <div className={bare ? "w-full flex items-center justify-center gap-1.5 flex-wrap" : "max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto flex items-center gap-1.5 sm:flex-wrap flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"}>
+        <div className={bare ? "flex items-center gap-1 rounded-full bg-base border border-line p-1 max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" : "flex items-center gap-1 rounded-full bg-base border border-line p-1 shrink-0"}>
           {MODEL_OPTIONS.map((o) => (
             <button
               key={o.id}
               onClick={() => setModel(o.id)}
               title={`${o.label} — ${o.hint}`}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition flex items-center gap-1 ${
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition flex items-center gap-1 shrink-0 whitespace-nowrap ${
                 model === o.id && !arenaMode
                   ? "bg-accent text-black"
                   : "text-gray-400 hover:text-white hover:bg-white/5"
