@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     LLM_FALLBACK_MODEL: str = ""      # fast-tier fallback model, e.g. "gemini-2.5-flash" (picker fast/mini tiers land here)
     LLM_FALLBACK_MODEL_PRO: str = "gemini-2.5-pro"  # flagship-class fallback model (default chat/coding/deep-search land here)
     LLM_FALLBACK_429_SWAP: bool = True  # on a rate-limit, retry once instantly on the sibling bucket (flash↔pro = separate quotas)
+    CONTEXT_BUDGET_S: float = 4.0       # hard per-source time budget for memory/recall/doc retrieval (vector store may be unreachable — never stall first-token)
 
     # Durable file storage — local disk by default; Cloudflare R2 (S3-compatible,
     # zero egress fees) when the R2_* envs are set. DB rows that hold files keep a

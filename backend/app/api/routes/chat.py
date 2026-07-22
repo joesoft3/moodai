@@ -2,6 +2,7 @@
 → model routing → SSE stream → background memory extraction & titling.
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -101,6 +102,17 @@ async def get_or_create_conversation(
     return conv, True
 
 
+async def _guarded(coro, label: str):
+    """Best-effort context source with a HARD time budget. An unreachable vector
+    store previously stalled first-token by ~25s; now any source that can't answer
+    within CONTEXT_BUDGET_S is simply skipped — the chat goes out without it."""
+    try:
+        return await asyncio.wait_for(coro, timeout=settings.CONTEXT_BUDGET_S)
+    except Exception as e:
+        log.warning("%s failed: %s", label, e)
+        return None
+
+
 async def build_messages(
     db: AsyncSession,
     user: User,
@@ -119,34 +131,30 @@ async def build_messages(
         )
     msgs: list[dict] = [{"role": "system", "content": persona}]
 
-    # 1) Long-term memory (best-effort)
-    try:
-        mems = await retrieve_memories(user.id, message)
-        if mems:
-            lines = "\n".join(f"- [{m.get('category', 'fact')}] {m.get('fact')}" for m in mems)
-            msgs.append(
-                {
-                    "role": "system",
-                    "content": "Known facts about this user (use naturally, never recite):\n" + lines,
-                }
-            )
-    except Exception as e:
-        log.warning("memory retrieval failed: %s", e)
-
-    # 1b) Recall of PREVIOUS conversations (semantic search over past-chat summaries)
-    try:
-        past = await retrieve_past_chats(user.id, message, exclude_conv_id=conv_id)
-        if past:
-            lines = "\n".join(f'- "{c["title"]}": {c["summary"]}' for c in past)
-            msgs.append(
-                {
-                    "role": "system",
-                    "content": "Memories from this user's PREVIOUS conversations. When the current topic "
-                    "relates to one, continue it seamlessly (\"as we discussed…\"); never force them in:\n" + lines,
-                }
-            )
-    except Exception as e:
-        log.warning("chat recall failed: %s", e)
+    # 1) Long-term memory + 1b) past-chat recall — CONCURRENT, each under a hard
+    #    budget (they share the vector store; serialized dead-endpoint attempts
+    #    were the measured ~25s first-token stall)
+    mems, past = await asyncio.gather(
+        _guarded(retrieve_memories(user.id, message), "memory retrieval"),
+        _guarded(retrieve_past_chats(user.id, message, exclude_conv_id=conv_id), "chat recall"),
+    )
+    if mems:
+        lines = "\n".join(f"- [{m.get('category', 'fact')}] {m.get('fact')}" for m in mems)
+        msgs.append(
+            {
+                "role": "system",
+                "content": "Known facts about this user (use naturally, never recite):\n" + lines,
+            }
+        )
+    if past:
+        lines = "\n".join(f'- "{c["title"]}": {c["summary"]}' for c in past)
+        msgs.append(
+            {
+                "role": "system",
+                "content": "Memories from this user's PREVIOUS conversations. When the current topic "
+                "relates to one, continue it seamlessly (\"as we discussed…\"); never force them in:\n" + lines,
+            }
+        )
 
     # 1c) Brand-new conversation → digest of the most recent previous chats,
     #     so "last time we talked about…" / "continue where we left off" work directly
@@ -187,19 +195,17 @@ async def build_messages(
             file_blocks.append(f'<file name="{asset.filename}" type="{asset.mime}">\n{asset.extracted_text}\n</file>')
 
     # 2b) Doc-RAG: semantic retrieval over the rest of the user's document library
-    try:
-        chunks = await retrieve_doc_chunks(user.id, message, exclude_file_ids=attached_ids)
-        if chunks:
-            block = "\n\n".join(f'[doc: {c["filename"]} · relevance {c["score"]}]\n{c["text"]}' for c in chunks)
-            msgs.append(
-                {
-                    "role": "system",
-                    "content": "Relevant excerpts from the user's documents (reference the filename when using them):\n"
-                    + block,
-                }
-            )
-    except Exception as e:
-        log.warning("doc retrieval failed: %s", e)
+    #     (same vector store → same hard budget)
+    chunks = await _guarded(retrieve_doc_chunks(user.id, message, exclude_file_ids=attached_ids), "doc retrieval")
+    if chunks:
+        block = "\n\n".join(f'[doc: {c["filename"]} · relevance {c["score"]}]\n{c["text"]}' for c in chunks)
+        msgs.append(
+            {
+                "role": "system",
+                "content": "Relevant excerpts from the user's documents (reference the filename when using them):\n"
+                + block,
+            }
+        )
 
     # 3) Tavily alternative search path (xAI Live Search is the default)
     if use_search and settings.SEARCH_PROVIDER == "tavily":
@@ -233,6 +239,11 @@ async def build_messages(
 
 
 async def generate_title(conv_id: str, first_msg: str) -> None:
+    # Quota economy: on the stand-in stack (LLM_FALLBACK_PROVIDER) the shared key
+    # may be on a tiny daily budget — the seeded title (first words of the chat,
+    # set at conversation creation) is kept and the LLM prettifier is skipped.
+    if (settings.LLM_FALLBACK_PROVIDER or "").strip():
+        return
     try:
         title = (
             await llm.complete(

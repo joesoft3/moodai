@@ -54,7 +54,9 @@ class EmbeddingUnavailable(RuntimeError):
 def qdrant() -> AsyncQdrantClient:
     global _qdrant
     if _qdrant is None:
-        _qdrant = AsyncQdrantClient(url=settings.QDRANT_URL)
+        # hard client timeout: an unreachable vector store must fail in seconds,
+        # never hold chat context assembly hostage (measured: dead endpoint ≈ 25s stall)
+        _qdrant = AsyncQdrantClient(url=settings.QDRANT_URL, timeout=4)
     return _qdrant
 
 
@@ -166,6 +168,12 @@ def _strip_fence(s: str) -> str:
 
 
 async def extract_and_store(user_id: str, user_msg: str, assistant_msg: str, plan: str = "free") -> None:
+    # Quota economy: while the stand-in stack (LLM_FALLBACK_PROVIDER) is active the
+    # shared key may be on a tiny daily budget — chat answers alone must consume it.
+    # Fact extraction (1 LLM call/message) pauses; it resumes the moment the primary
+    # stack is restored. Existing memories keep working (retrieval is unaffected).
+    if (settings.LLM_FALLBACK_PROVIDER or "").strip():
+        return
     try:
         raw = await llm.complete(
             [
