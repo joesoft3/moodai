@@ -92,11 +92,15 @@ function MediaBlock({ m }: { m: ChatMedia }) {
   const label =
     m.kind === "image"
       ? "Painting your image…"
-      : m.stage === "compositing"
-        ? "Compositing your reel…"
-        : m.stage === "scenes" && m.total
-          ? `Directing scenes (${m.done ?? 0}/${m.total})…`
-          : "Directing your reel…";
+      : m.stage === "storyboard"
+        ? "Storyboarding your reel…"
+        : m.stage === "compositing"
+          ? "Compositing your reel…"
+          : m.stage === "voice"
+            ? "Recording the voiceover…"
+            : m.stage === "scenes" && m.total
+              ? `Directing scenes (${m.done ?? 0}/${m.total})…`
+              : "Directing your reel…";
   if (m.pending || !m.url) {
     return (
       <div className="mb-3 overflow-hidden rounded-2xl border border-line bg-base/60">

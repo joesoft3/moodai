@@ -1352,6 +1352,8 @@ class _MediaCard extends StatelessWidget {
 
   String get _stageLabel {
     if (media.kind == 'image') return '🎨 Painting your image…';
+    if (media.stage == 'storyboard') return '🎞️ Storyboarding your reel…';
+    if (media.stage == 'voice') return '🔊 Recording the voiceover…';
     if (media.stage == 'compositing') return '🎞️ Compositing your reel…';
     if (media.stage == 'scenes' && media.total != null) {
       return '🎬 Directing scenes (${media.done ?? 0}/${media.total})…';
