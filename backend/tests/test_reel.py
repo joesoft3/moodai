@@ -166,3 +166,159 @@ def test_reel_disabled_not_configured(reel_env, monkeypatch):
 def test_http_timeout_budget(reel_env):
     # generation must never hang: pollinations GET honours client timeouts (regression guard)
     assert isinstance(video._http, httpx.AsyncClient)
+
+
+# ================================================== v1.9.8 richer reels
+class _JsonResp:
+    def __init__(self, payload, status=200):
+        self._p = payload
+        self.status_code = status
+        self.text = jsonlib.dumps(payload)
+        self.headers = {"content-type": "application/json"}
+        self.content = self.text.encode()
+
+    def json(self):
+        return self._p
+
+
+import json as jsonlib
+
+
+@pytest.fixture()
+def rich_env(reel_env, monkeypatch):
+    """Scenes fetched + storyboard + TTS off by default; tests toggle pieces."""
+    monkeypatch.setattr(settings, "EXTRA_BRAIN_API_KEY", "")
+    monkeypatch.setattr(settings, "EMBED_API_KEY", "")
+    monkeypatch.setattr(settings, "EMBED_API_BASE_URL", "")
+    monkeypatch.setattr(settings, "REEL_STORYBOARD", True)
+    monkeypatch.setattr(settings, "REEL_NARRATION", True)
+    return
+
+
+def test_storyboard_parses_scenes_and_narration(rich_env, monkeypatch):
+    payload = {
+        "choices": [{
+            "message": {"content": '{"scenes": ["wide kente loom detail", "hands threading gold", "finished cloth in sunlight"], "narration": "Woven by hand, worn with pride."}'}
+        }]
+    }
+
+    async def fake_post(url, **kw):
+        assert "groq.com" in url
+        return _JsonResp(payload)
+
+    monkeypatch.setattr(settings, "EXTRA_BRAIN_API_KEY", "gsk-test")
+    monkeypatch.setattr(settings, "EXTRA_BRAIN_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(video._http, "post", fake_post)
+    scenes, narration = run(video._storyboard("kente weaving", 3))
+    assert scenes and len(scenes) == 3 and "loom" in scenes[0]
+    assert narration == "Woven by hand, worn with pride."
+
+
+def test_storyboard_bad_json_falls_back(rich_env, monkeypatch):
+    async def fake_post(url, **kw):
+        return _JsonResp({"choices": [{"message": {"content": "sorry, cannot help with that"}}]})
+
+    monkeypatch.setattr(settings, "EXTRA_BRAIN_API_KEY", "gsk-test")
+    monkeypatch.setattr(video._http, "post", fake_post)
+    assert run(video._storyboard("x", 3)) == (None, None)
+
+
+def test_storyboard_no_key_falls_back(rich_env):
+    assert run(video._storyboard("kente", 3)) == (None, None)
+
+
+def test_narrate_cascade_all_fail_returns_none(rich_env, monkeypatch):
+    async def bad_post(url, **kw):
+        return _JsonResp({"error": {"message": "terms"}}, status=400)
+
+    async def bad_get(url, **kw):
+        return _FakeResp(status=403, ctype="text/html", body=b"denied")
+
+    monkeypatch.setattr(settings, "EXTRA_BRAIN_API_KEY", "gsk-test")
+    monkeypatch.setattr(video._http, "post", bad_post)
+    monkeypatch.setattr(video._http, "get", bad_get)
+    assert run(video._narrate("a line to speak")) is None
+
+
+def test_reel_with_voice_muxes_audio(rich_env, monkeypatch):
+    captured = {}
+
+    async def fake_post(url, **kw):
+        if "chat/completions" in url:
+            return _JsonResp({"choices": [{"message": {"content": '{"scenes": ["beach at dawn", "fishermen pulling nets", "boats in golden light"], "narration": "The Volta wakes before the city."}'}}]})
+        # orpheus wav
+        return _FakeResp(ctype="audio/wav", body=b"RIFF" + b"\x00" * 5000)
+
+    monkeypatch.setattr(settings, "EXTRA_BRAIN_API_KEY", "gsk-test")
+    monkeypatch.setattr(video._http, "post", fake_post)
+
+    real_exec = asyncio.subprocess.create_subprocess_exec
+
+    async def spy_exec(*cmd, **kw):
+        captured["cmd"] = list(cmd)
+        out = cmd[-1]
+        with open(out, "wb") as f:
+            f.write(b"\x00\x00\x00\x18ftypmp42VOICED")
+        return _FakeProc(0)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spy_exec)
+    stages: list[dict] = []
+    url, _ = run(video.generate("volta fishermen at dawn", VideoOptions(duration=6),
+                                on_progress=lambda d: stages.append(dict(d))))
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", real_exec)
+    assert "reel-" in url
+    cmd = captured["cmd"]
+    assert "[aout]" in cmd and "aac" in cmd  # narration actually muxed
+    order = [s["stage"] for s in stages]
+    assert order[0] == "storyboard" and "voice" in order and order[-1] == "compositing"
+
+
+def test_reel_voice_all_fail_still_composes_silent(rich_env, monkeypatch):
+    async def fake_post(url, **kw):
+        if "chat/completions" in url:
+            return _JsonResp({"choices": [{"message": {"content": '{"scenes": ["a", "b"], "narration": "speak me"}'}}]})
+        return _JsonResp({"error": {}}, status=400)
+
+    captured = {}
+
+    async def spy_exec(*cmd, **kw):
+        captured["cmd"] = list(cmd)
+        with open(cmd[-1], "wb") as f:
+            f.write(b"\x00\x00\x00\x18ftypmp42SILENT")
+        return _FakeProc(0)
+
+    monkeypatch.setattr(settings, "EXTRA_BRAIN_API_KEY", "gsk-test")
+    monkeypatch.setattr(video._http, "post", fake_post)
+
+    async def deny_get(url, **kw):
+        return _FakeResp(status=403, ctype="text/html", body=b"no")
+
+    # scenes must still fetch OK from the image provider
+    async def scene_get(url, **kw):
+        if "pollinations" in url:
+            return _FakeResp()
+        return _FakeResp(status=403, ctype="text/html", body=b"no")
+
+    monkeypatch.setattr(video._http, "get", scene_get)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spy_exec)
+    stages: list[dict] = []
+    url, _ = run(video.generate("quiet reel", VideoOptions(duration=6),
+                                on_progress=lambda d: stages.append(dict(d))))
+    assert "reel-" in url
+    assert "[aout]" not in captured["cmd"]  # fail-open: no audio track
+    voice_stage = [s for s in stages if s["stage"] == "voice"]
+    assert voice_stage and voice_stage[-1]["done"] == 0
+
+
+def test_reel_storyboard_off_keeps_deterministic(rich_env, monkeypatch):
+    monkeypatch.setattr(settings, "REEL_STORYBOARD", False)
+    called = {"n": 0}
+
+    async def no_post(url, **kw):
+        called["n"] += 1
+        return _JsonResp({})
+
+    monkeypatch.setattr(video._http, "post", no_post)
+    monkeypatch.setattr(settings, "EXTRA_BRAIN_API_KEY", "gsk-test")
+    url, _ = run(video.generate("deterministic beats reel", VideoOptions(duration=6)))
+    assert "reel-" in url and called["n"] == 0  # never called the brain

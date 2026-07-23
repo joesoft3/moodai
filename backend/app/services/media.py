@@ -66,6 +66,33 @@ REEL_BEATS = [
 ]
 REEL_FADE_S = 0.5
 
+_GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+_GROQ_TTS_URL = "https://api.groq.com/openai/v1/audio/speech"
+_GTTS_URL = "https://translate.google.com/translate_tts"
+
+
+def _storyboard_prompt(prompt: str, scenes: int) -> str:
+    return (
+        f'You are a film director. Break this idea into exactly {scenes} cinematic still-frame '
+        f'scene prompts (each < 28 words, purely visual, keep the subject consistent across '
+        f'scenes, vary camera distance/angle), plus a one-breath voiceover line (14-24 words, '
+        f'warm, no camera talk).\nIdea: "{prompt[:500]}"\n'
+        f'Reply with STRICT JSON only: {{"scenes": ["...", ...], "narration": "..."}}'
+    )
+
+
+def _extract_json(text: str) -> dict | None:
+    import json
+    import re
+
+    m = re.search(r"\{.*\}", text or "", re.DOTALL)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
 
 @dataclass
 class VideoOptions:
@@ -167,6 +194,102 @@ class VideoService:
             raise last_err
         raise VideoNotConfigured("VIDEO_PROVIDER chain is empty.")
 
+    # ----------------------------------------------------- storyboard & voice
+    async def _storyboard(self, prompt: str, scenes: int) -> tuple[list[str] | None, str | None]:
+        """🎞️ LLM storyboard via the free Groq brain (fail-open → deterministic beats).
+        Returns (scene_prompts, narration_text) or (None, None)."""
+        key = (settings.EXTRA_BRAIN_API_KEY or "").strip()
+        if not key:
+            return None, None
+        try:
+            r = await self._http.post(
+                _GROQ_CHAT_URL,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={
+                    "model": settings.EXTRA_BRAIN_MODEL or "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": _storyboard_prompt(prompt, scenes)}],
+                    "temperature": 0.7,
+                    "max_tokens": 500,
+                    "response_format": {"type": "json_object"},
+                },
+                timeout=httpx.Timeout(15.0, read=35.0),
+            )
+            if r.status_code >= 400:
+                log.info("storyboard brain hiccup (%s): %s", r.status_code, r.text[:120])
+                return None, None
+            data = _extract_json(r.json()["choices"][0]["message"]["content"])
+            if not data:
+                return None, None
+            raw = data.get("scenes")
+            out = [str(s).strip() for s in (raw or []) if str(s or "").strip()]
+            if len(out) < 2:
+                return None, None
+            narration = str(data.get("narration") or "").strip() or None
+            return out[: settings.REEL_MAX_SCENES], (narration[:300] if narration else None)
+        except Exception as e:
+            log.info("storyboard unavailable (%s) — deterministic beats", e)
+            return None, None
+
+    async def _narrate(self, script: str) -> tuple[bytes, str] | None:
+        """🔊 TTS cascade, fail-open: Groq Orpheus → Cloudflare aura-1 (same
+        WorkersAI token as the embeddings tier) → unofficial gTTS → None (silent).
+        Returns (audio_bytes, mime) for ffmpeg to mux."""
+        text = script.strip()[:600]
+        if not text:
+            return None
+        key_g = (settings.EXTRA_BRAIN_API_KEY or "").strip()
+        key_cf = (settings.EMBED_API_KEY or "").strip()
+        # 1) Groq Orpheus (pending model-terms acceptance on the org — one tap)
+        if key_g:
+            try:
+                r = await self._http.post(
+                    _GROQ_TTS_URL,
+                    headers={"Authorization": f"Bearer {key_g}", "Content-Type": "application/json"},
+                    json={
+                        "model": settings.GROQ_TTS_MODEL,
+                        "voice": settings.GROQ_TTS_VOICE,
+                        "input": text,
+                        "response_format": "wav",
+                    },
+                    timeout=httpx.Timeout(15.0, read=settings.TTS_TIMEOUT_S),
+                )
+                if r.status_code == 200 and r.content[:4] == b"RIFF" and len(r.content) > 1024:
+                    return r.content, "wav"
+                log.info("orpheus tts unavailable (%s)", r.status_code)
+            except Exception as e:
+                log.info("orpheus tts hiccup: %s", e)
+        # 2) Cloudflare Workers AI aura-1 (rides the embeddings token)
+        if key_cf and (settings.EMBED_API_BASE_URL or "").startswith("https://api.cloudflare.com"):
+            try:
+                run_url = settings.EMBED_API_BASE_URL.rstrip("/").replace("/ai/v1", "/ai/run")
+                r = await self._http.post(
+                    f"{run_url}/@cf/deepgram/aura-1",
+                    headers={"Authorization": f"Bearer {key_cf}", "Content-Type": "application/json"},
+                    json={"text": text, "encoding": "mp3"},
+                    timeout=httpx.Timeout(15.0, read=settings.TTS_TIMEOUT_S),
+                )
+                if r.status_code == 200 and len(r.content) > 1024 and r.content[:3] == b"ID3" or (
+                    r.status_code == 200 and len(r.content) > 1024 and r.content[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")
+                ):
+                    return r.content, "mp3"
+                log.info("cf aura tts unavailable (%s)", r.status_code)
+            except Exception as e:
+                log.info("cf aura tts hiccup: %s", e)
+        # 3) unofficial gTTS (robotic but works keyless today — probed live)
+        try:
+            r = await self._http.get(
+                _GTTS_URL,
+                params={"ie": "UTF-8", "tl": "en", "client": "tw-ob", "q": text[:200]},
+                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36"},
+                timeout=httpx.Timeout(15.0, read=settings.TTS_TIMEOUT_S),
+            )
+            if r.status_code == 200 and len(r.content) > 1024 and r.content[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+                return r.content, "mp3"
+            log.info("gtts unavailable (%s)", r.status_code)
+        except Exception as e:
+            log.info("gtts hiccup: %s", e)
+        return None
+
     # ------------------------------------------------------------- reel
     async def _reel(self, prompt: str, opts: VideoOptions,
                     on_progress: Callable[[dict], None] | None = None) -> tuple[str, bool]:
@@ -184,10 +307,23 @@ class VideoService:
         aspect = opts.aspect_ratio if opts.aspect_ratio in ("16:9", "9:16", "1:1") else "16:9"
         W, H = _reel_dims(aspect)
         out_w, out_h = (1280, 720) if aspect == "16:9" else ((720, 1280) if aspect == "9:16" else (960, 960))
-        beat_prompts = [
-            f"{prompt.strip()}, {REEL_BEATS[i % len(REEL_BEATS)]}, {STYLE_PRESETS.get(opts.style, STYLE_PRESETS['cinematic'])}"
-            for i in range(scenes)
-        ]
+        # 🎞️ v1.9.8: LLM storyboard beats (free brain, fail-open to deterministic)
+        beat_prompts: list[str] | None = None
+        narration: str | None = None
+        if settings.REEL_STORYBOARD:
+            if on_progress:
+                on_progress({"stage": "storyboard", "done": 0, "total": 1})
+            sb_scenes, narration = await self._storyboard(prompt, scenes)
+            if sb_scenes:
+                beat_prompts = sb_scenes
+                scenes = len(beat_prompts)
+            if on_progress:
+                on_progress({"stage": "storyboard", "done": 1, "total": 1})
+        if not beat_prompts:
+            beat_prompts = [
+                f"{prompt.strip()}, {REEL_BEATS[i % len(REEL_BEATS)]}, {STYLE_PRESETS.get(opts.style, STYLE_PRESETS['cinematic'])}"
+                for i in range(scenes)
+            ]
         if on_progress:
             on_progress({"stage": "scenes", "done": 0, "total": scenes})
 
@@ -224,6 +360,15 @@ class VideoService:
             got.append(got[0])
             flipped.append(True)
 
+        # 🔊 AI voiceover (fail-open: silent reel is still a reel)
+        voice: tuple[bytes, str] | None = None
+        if settings.REEL_NARRATION and narration:
+            if on_progress:
+                on_progress({"stage": "voice", "done": 0, "total": 1})
+            voice = await self._narrate(narration)
+            if on_progress:
+                on_progress({"stage": "voice", "done": 1 if voice else 0, "total": 1})
+
         os.makedirs(settings.MEDIA_DIR, exist_ok=True)
         fade = REEL_FADE_S
         total = float(duration)
@@ -238,6 +383,12 @@ class VideoService:
             inputs: list[str] = []
             for n in range(len(got)):
                 inputs += ["-loop", "1", "-framerate", "24", "-t", f"{per:.3f}", "-i", os.path.join(tmp, f"s{n}.jpg")]
+            if voice:  # narration rides in as the last input (index len(got))
+                v_ext = "wav" if voice[1] == "wav" else "mp3"
+                v_path = os.path.join(tmp, f"voice.{v_ext}")
+                with open(v_path, "wb") as f:
+                    f.write(voice[0])
+                inputs += ["-i", v_path]
             # Ken Burns: alternating push-in / pull-out zoompan per scene
             labels: list[str] = []
             for n in range(len(got)):
@@ -255,6 +406,11 @@ class VideoService:
                 xf += f";[x{n-1}][v{n}]xfade=transition=fade:duration={fade}:offset={(per * n) - (fade * n):.3f}[x{n}]"
             graph = ";".join(labels) + ";" + xf
             last = f"[x{len(got)-1}]"
+            if voice:  # gentle in/out fades, AAC mux under the picture
+                graph += (
+                    f";[{len(got)}:a]aresample=48000,volume=0.92,"
+                    f"afade=t=in:st=0:d=0.4,afade=t=out:st={max(total - 0.8, 0.5):.3f}:d=0.8[aout]"
+                )
             out_name = f"reel-{_uuid.uuid4().hex}.mp4"
             out_path = os.path.join(settings.MEDIA_DIR, out_name)
             if on_progress:
@@ -262,7 +418,12 @@ class VideoService:
             cmd = [
                 exe, "-y", *inputs,
                 "-filter_complex", graph,
-                "-map", last, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                "-map", last,
+            ]
+            if voice:
+                cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "96k"]
+            cmd += [
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                 "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-t", f"{total:.3f}", out_path,
             ]
             proc = await asyncio.create_subprocess_exec(

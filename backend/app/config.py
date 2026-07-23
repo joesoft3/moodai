@@ -245,6 +245,14 @@ class Settings(BaseSettings):
     # 🎬 Mood Reel composer (ffmpeg present in both deploy images — verified)
     REEL_ENABLED: bool = True
     REEL_MAX_SCENES: int = 5
+    # 🎞️ v1.9.8 richer reels: LLM storyboard (free Groq brain, fail-open to
+    # deterministic beats) + AI voiceover (TTS cascade: Groq Orpheus → Cloudflare
+    # aura-1 (same WorkersAI token as embeddings) → unofficial gTTS → silent).
+    REEL_STORYBOARD: bool = True
+    REEL_NARRATION: bool = True
+    GROQ_TTS_MODEL: str = "canopylabs/orpheus-v1-english"
+    GROQ_TTS_VOICE: str = "tara"
+    TTS_TIMEOUT_S: int = 45
 
     # 🎨🎬 In-chat creation (v1.9.7): type "create an image of…" / "make a video of…"
     # in any chat and Mood generates inline. Zero-cost heuristic router (no LLM spent).
