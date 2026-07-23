@@ -351,7 +351,9 @@ async def chat_stream(
     # 🎨🎬 In-chat creation (v1.9.7) — "create an image of…" / "make a video of…"
     # Routed BEFORE context assembly: zero LLM classification cost, no memory/RAG
     # retrieval spent on gen prompts, generation streams inline like ChatGPT.
-    if settings.CHAT_MEDIA and not req.files and not req.search and not req.plugins:
+    # NOTE: the web/mobile composers ship search=true by default — the media
+    # intent must win over that (a creation turn never needs web context).
+    if settings.CHAT_MEDIA and not req.files and not req.plugins:
         last_media: dict | None = None
         if not created:
             prev = (

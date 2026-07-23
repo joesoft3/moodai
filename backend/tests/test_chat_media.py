@@ -356,3 +356,43 @@ def test_persist_video_sibling_404_no_longer_possible(monkeypatch, tmp_path):
         chatmod._persist_generated_media(_DB(), _User(), "https://moodai-api.fly.dev/api/v1/media/files/reel-gone.mp4", "video")
     )
     assert stored == "hotlink" and url.endswith("reel-gone.mp4")
+
+
+# ------------------------------------------- production-caught regression
+def test_media_wins_over_default_search_flag(env, monkeypatch):
+    """Caught live in the browser QA: web/mobile composers send search=true by
+    default — media intent must still route (caught as a JSON-prompt text answer)."""
+    async def fake_image(prompt, **opts):
+        return "https://provider.example/x.png"
+
+    monkeypatch.setattr(chatmod.llm, "generate_image", fake_image)
+
+    async def _t():
+        async with await _client() as c:
+            tk = await _token(c)
+            evs = await _post_chat(c, tk, {
+                "conversation_id": None, "message": "create an image of a kente robot",
+                "files": [], "search": True,  # ← the real client default
+            })
+            assert any(e["type"] == "media" and e["kind"] == "image" for e in evs), evs
+
+    run(_t())
+
+
+def test_attached_files_still_skip_media_routing(env, monkeypatch):
+    async def no_stream(*a, **k):
+        yield {"type": "delta", "text": "file-aware answer"}
+
+    monkeypatch.setattr(chatmod.llm, "stream_chat", no_stream)
+
+    async def _t():
+        async with await _client() as c:
+            tk = await _token(c)
+            evs = await _post_chat(c, tk, {
+                "conversation_id": None, "message": "create an image of a goat",
+                "files": ["some-file-id"], "search": False,
+            })
+            assert not any(e["type"] == "media" for e in evs)
+            assert any(e["type"] == "delta" for e in evs)
+
+    run(_t())
