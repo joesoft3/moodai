@@ -199,22 +199,30 @@ class VideoService:
                 f"{settings.POLLINATIONS_IMAGE_URL}/{quote(p[:700])}"
                 f"?width={W}&height={H}&seed={seed}&model={settings.POLLINATIONS_MODEL}&nologo=true&enhance=true"
             )
-            for _ in range(2):  # one retry — provider hiccups are normal
+            for attempt in range(3):  # provider hiccups/rate sheds are normal — backoff retry
                 try:
                     r = await self._http.get(url, timeout=httpx.Timeout(20.0, read=75.0))
                     if r.status_code == 200 and (r.headers.get("content-type") or "").startswith("image/") and r.content:
                         return r.content
                 except Exception as e:
                     log.info("reel scene %d fetch hiccup: %s", i, e)
-                await asyncio.sleep(1.2)
+                await asyncio.sleep(1.2 + attempt * 1.3)
             return None
 
         shots = await asyncio.gather(*(_fetch(i, p) for i, p in enumerate(beat_prompts)))
         got = [(i, b) for i, b in enumerate(shots) if b]
         if on_progress:
             on_progress({"stage": "scenes", "done": len(got), "total": scenes})
-        if len(got) < 2:
-            raise VideoGenerationError(f"Scene renders came back short ({len(got)}/{scenes}) — try again in a moment.")
+        if not got:
+            raise VideoGenerationError("Scene renders all came back short — try again in a moment.")
+        # 🛟 Solo-scene rescue: a single good frame still makes a reel — mirror it
+        # (hflip + opposite zoom direction reads as a deliberate cut, not a bug).
+        # Measured live on Vercel: pollinations shed 2/3 scene fetches under rate
+        # pressure and the whole generation used to die.
+        flipped = [False] * len(got)
+        if len(got) == 1:
+            got.append(got[0])
+            flipped.append(True)
 
         os.makedirs(settings.MEDIA_DIR, exist_ok=True)
         fade = REEL_FADE_S
@@ -239,7 +247,7 @@ class VideoService:
                 zexpr = z_in if n % 2 == 0 else z_out
                 labels.append(
                     f"[{n}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
-                    f"crop={W}:{H},{zexpr}:s={out_w}x{out_h},setsar=1,format=yuv420p[v{n}]"
+                    f"crop={W}:{H}{',hflip' if flipped[n] else ''},{zexpr}:s={out_w}x{out_h},setsar=1,format=yuv420p[v{n}]"
                 )
             # xfade chain (offsets accumulate minus the overlap)
             xf = f"[v0][v1]xfade=transition=fade:duration={fade}:offset={per - fade:.3f}[x1]"

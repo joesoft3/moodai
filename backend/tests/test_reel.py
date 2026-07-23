@@ -89,6 +89,25 @@ def test_reel_scene_shortfall_fails(reel_env, monkeypatch):
         run(video._reel("impossible scene", VideoOptions(duration=6)))
 
 
+def test_reel_solo_scene_rescue_clones(reel_env, monkeypatch):
+    """Vercel lesson (live): provider may shed all-but-one scene fetch — a single
+    good frame must still compose a reel (mirrored clone), never a dead stream."""
+    calls = {"n": 0}
+
+    async def one_good_fetch(url, **kw):
+        calls["n"] += 1
+        seed_hit = "seed=" in url and url.split("seed=")[1].split("&")[0]
+        # deterministic: only the FIRST scene render succeeds, the rest shed
+        return _FakeResp() if calls["n"] == 1 else _FakeResp(status=429, ctype="application/json", body=b'{"error":"slow down"}')
+
+    monkeypatch.setattr(video._http, "get", one_good_fetch)
+    stages: list[dict] = []
+    url, _ = run(video.generate("a solo frame rescue", VideoOptions(duration=6),
+                                on_progress=lambda d: stages.append(dict(d))))
+    assert "reel-" in url and url.endswith(".mp4")
+    assert any(s["stage"] == "compositing" for s in stages)
+
+
 def test_reel_needs_ffmpeg(monkeypatch):
     monkeypatch.setattr(media_mod, "_ffmpeg_exe", lambda: None)
     with pytest.raises(VideoNotConfigured):
