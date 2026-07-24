@@ -18,6 +18,49 @@ interface Overview {
   };
   recent_users: AdminUser[];
   capabilities: Record<string, boolean | string>;
+  providers?: {
+    cloudflare_dns: boolean;
+    vercel_attach: boolean;
+    platform_cname: string;
+    platform_ip: string;
+    pollinations_image: boolean;
+    pollinations_video: boolean;
+    image_fallback_provider: string;
+    video_provider_chain: string[];
+  };
+  brains?: {
+    text: {
+      primary: { provider: string; model: string; configured: boolean };
+      fast: { provider: string; model: string };
+      rescue_chain: { provider: string; model: string }[];
+      fast_rescue_chain: { provider: string; model: string }[];
+      fallbacks: Record<string, boolean>;
+      ready: boolean;
+    };
+    image: {
+      mode: string;
+      primary: { provider: string; model: string };
+      xai_configured: boolean;
+      fallback_provider: string | null;
+      pollinations: { enabled: boolean; model: string; url: string };
+      persist: boolean;
+      ready: boolean;
+    };
+    video: {
+      chain: string[];
+      providers: { provider: string; ready: boolean; reason: string }[];
+      ffmpeg: boolean;
+      reel_enabled: boolean;
+      storyboard: boolean;
+      narration: {
+        enabled: boolean;
+        extra_brain_tts: boolean;
+        cloudflare_aura: boolean;
+        openai_soundtrack: boolean;
+      };
+      ready: boolean;
+    };
+  };
 }
 
 interface AdminUser {
@@ -263,6 +306,105 @@ export default function AdminPage() {
               )}
             </Card>
           </div>
+
+          {/* Provider readiness */}
+          <Card icon={<Puzzle size={16} />} title="Provider readiness — Cloudflare · Vercel · Pollinations">
+            {!overview?.providers ? (
+              <p className="text-sm text-gray-600">Loading…</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 text-center">
+                  {(
+                    [
+                      ["☁️ Cloudflare DNS", overview.providers.cloudflare_dns ? "ready" : "off"],
+                      ["▲ Vercel attach", overview.providers.vercel_attach ? "ready" : "off"],
+                      ["🖼 Pollinations image", overview.providers.pollinations_image ? "on" : (overview.providers.image_fallback_provider || "off")],
+                      ["🎬 Pollinations video", overview.providers.pollinations_video ? "ready" : "key missing"],
+                    ] as [string, string][]
+                  ).map(([label, v]) => (
+                    <div key={label} className="rounded-xl bg-base border border-line px-2 py-3">
+                      <p className="text-base font-semibold text-gray-100">{v}</p>
+                      <p className="text-[10px] text-gray-500">{label}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-3 text-[11px]">
+                  <div className="rounded-xl bg-base border border-line p-3 space-y-1.5">
+                    <p className="text-gray-500">Domain automation</p>
+                    <p className="text-gray-300 break-all">Traffic target: {overview.providers.platform_cname || overview.providers.platform_ip || "not configured"}</p>
+                    <p className="text-gray-600">When Cloudflare is ready, Settings → Domains can create TXT + traffic records in one tap during connect.</p>
+                  </div>
+                  <div className="rounded-xl bg-base border border-line p-3 space-y-1.5">
+                    <p className="text-gray-500">Video provider chain</p>
+                    <p className="text-gray-300">{overview.providers.video_provider_chain.join(" → ") || "—"}</p>
+                    <p className="text-gray-600">Pollinations sits in the active render chain only when listed here; image fallback is controlled separately.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* Brain routing */}
+          <Card icon={<Puzzle size={16} />} title="Brain routing — text · image · video">
+            {!overview?.brains ? (
+              <p className="text-sm text-gray-600">Loading…</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid md:grid-cols-3 gap-3 text-[11px]">
+                  <div className="rounded-xl bg-base border border-line p-3 space-y-2">
+                    <p className="text-gray-500">💬 Text brain</p>
+                    <p className="text-gray-200">
+                      Primary: <span className="text-accent">{overview.brains.text.primary.provider}</span> · {overview.brains.text.primary.model}
+                    </p>
+                    <p className="text-gray-400">
+                      Fast lane: {overview.brains.text.fast.provider} · {overview.brains.text.fast.model}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(overview.brains.text.fallbacks).map(([k, v]) => (
+                        <span key={k} className={`rounded-full border px-2 py-0.5 ${v ? "text-green-400 border-green-400/30 bg-green-400/10" : "text-gray-500 border-line"}`}>
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-gray-600">
+                      Rescue: {overview.brains.text.rescue_chain.length ? overview.brains.text.rescue_chain.map((r) => `${r.provider}/${r.model}`).join(" → ") : "none"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-base border border-line p-3 space-y-2">
+                    <p className="text-gray-500">🖼 Image brain</p>
+                    <p className="text-gray-200">
+                      Mode: <span className="text-accent">{overview.brains.image.mode}</span> · {overview.brains.image.primary.model}
+                    </p>
+                    <p className="text-gray-400">
+                      xAI image key: {overview.brains.image.xai_configured ? "ready" : "missing"}
+                    </p>
+                    <p className="text-gray-400">
+                      Pollinations: {overview.brains.image.pollinations.enabled ? `on (${overview.brains.image.pollinations.model})` : (overview.brains.image.fallback_provider || "off")}
+                    </p>
+                    <p className="text-gray-600">
+                      Persistence: {overview.brains.image.persist ? "archive generated images to storage" : "serve provider links only"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-base border border-line p-3 space-y-2">
+                    <p className="text-gray-500">🎬 Video brain</p>
+                    <p className="text-gray-200">
+                      Chain: <span className="text-accent">{overview.brains.video.chain.join(" → ") || "—"}</span>
+                    </p>
+                    <div className="space-y-1">
+                      {overview.brains.video.providers.map((p) => (
+                        <p key={p.provider} className="text-gray-400">
+                          {p.provider}: {p.ready ? "ready" : "not ready"} · <span className="text-gray-600">{p.reason}</span>
+                        </p>
+                      ))}
+                    </div>
+                    <p className="text-gray-600">
+                      Narration: {overview.brains.video.narration.enabled ? "enabled" : "off"} · extra-brain TTS {overview.brains.video.narration.extra_brain_tts ? "✓" : "—"} · Cloudflare aura {overview.brains.video.narration.cloudflare_aura ? "✓" : "—"} · OpenAI soundtrack {overview.brains.video.narration.openai_soundtrack ? "✓" : "—"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
 
           {/* 📊 Analytics: growth, activity, usage mix, arena, revenue */}
           <Card icon={<BarChart3 size={16} />} title="Analytics — growth · usage · revenue">

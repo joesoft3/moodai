@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { API } from "@/lib/api";
@@ -20,22 +21,27 @@ interface SharedData {
 
 /** Public, login-free view of a conversation shared via /conversations/{id}/share.
  *  White-labeled when opened on a verified custom domain (name/logo/accent). */
-export default function SharedConversationPage({ params }: { params: { token: string } }) {
-  const { token } = params;
+export default function SharedConversationPage() {
+  const params = useParams<{ token: string | string[] }>();
+  const shareToken = useMemo(() => {
+    const raw = params?.token;
+    return Array.isArray(raw) ? raw[0] ?? "" : raw ?? "";
+  }, [params]);
   const [data, setData] = useState<SharedData | null>(null);
   const [error, setError] = useState("");
   const brand = useBrand();
 
   useEffect(() => {
+    if (!shareToken) return;
     // plain fetch — this page is unauthenticated by design
-    fetch(`${API}/share/${token}`)
+    fetch(`${API}/share/${shareToken}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(r.status === 404 ? "This shared link is invalid or has been revoked." : `Error ${r.status}`);
         return r.json();
       })
       .then(setData)
       .catch((e) => setError(e.message ?? "Could not load this shared conversation."));
-  }, [token]);
+  }, [shareToken]);
 
   useEffect(() => {
     if (data) document.title = `${data.title} · ${brand?.brand_name ?? "Mood AI"}`;

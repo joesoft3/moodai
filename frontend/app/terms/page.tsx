@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Terms of Service — Mood AI",
   description: "The agreement for using Mood AI apps, APIs and arenas.",
+  alternates: { canonical: "/terms" },
 };
 
 const SEC = [

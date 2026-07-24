@@ -84,6 +84,14 @@ interface DomainProviders {
   registrar_env: string;
   stripe: boolean;
   platform_cname: string;
+  platform_ip: string;
+  cloudflare_dns: boolean;
+  vercel_attach?: boolean;
+  image_fallback_provider?: string;
+  pollinations_image?: boolean;
+  pollinations_video?: boolean;
+  video_provider_chain?: string[];
+  video_pollinations_enabled?: boolean;
   markup_pct: number;
 }
 
@@ -101,7 +109,7 @@ interface DomainRec {
   expires_at: string | null;
   accent: string | null;
   has_logo: boolean;
-  dns?: { txt_name: string; txt_value: string; cname_target: string } | null;
+  dns?: { txt_name: string; txt_value: string; cname_target: string; a_record_ip?: string | null } | null;
   arena?: DomainArena;
 }
 
@@ -354,13 +362,25 @@ export default function SettingsPage() {
     setDomBusy(true);
     setDomMsg("");
     try {
-      await apiFetch("/domains/connect", {
+      const d = await apiFetch<DomainRec & { cloudflare?: { zone?: string } | null; cloudflare_error?: string | null }>("/domains/connect", {
         method: "POST",
-        body: JSON.stringify({ domain: connectForm.domain.trim(), brand_name: connectForm.brand.trim() || null }),
+        body: JSON.stringify({
+          domain: connectForm.domain.trim(),
+          brand_name: connectForm.brand.trim() || null,
+          auto_cloudflare: Boolean(domProviders?.cloudflare_dns),
+        }),
       });
       setConnectForm({ domain: "", brand: "" });
       await loadDomains();
-      setDomMsg("✅ Domain added — finish the DNS setup below, then hit Verify.");
+      if (d.status === "active") {
+        setDomMsg(`✅ Domain connected${d.cloudflare?.zone ? ` via Cloudflare (${d.cloudflare.zone})` : ""} and already live.`);
+      } else if (d.cloudflare?.zone) {
+        setDomMsg(`✅ Domain added and Cloudflare DNS records were created on ${d.cloudflare.zone}. Give DNS a minute, then hit Verify if it doesn't go live automatically.`);
+      } else if (d.cloudflare_error) {
+        setDomMsg(`✅ Domain added. Auto-setup in Cloudflare couldn't finish: ${d.cloudflare_error}`);
+      } else {
+        setDomMsg("✅ Domain added — finish the DNS setup below, then hit Verify.");
+      }
     } catch (e: any) {
       setDomMsg("⚠️ " + (e.message ?? "Connect failed"));
     } finally {
@@ -377,6 +397,24 @@ export default function SettingsPage() {
       await loadDomains();
     } catch (e: any) {
       setDomMsg("⚠️ " + (e.message ?? "Verify failed"));
+    }
+  }
+
+  async function setupCloudflareDomain(id: string) {
+    setDomBusy(true);
+    setDomMsg("");
+    try {
+      const d = await apiFetch<DomainRec & { cloudflare?: { zone?: string; record_type?: string } }>(`/domains/${id}/cloudflare/setup`, { method: "POST" });
+      if (d.status === "active") {
+        setDomMsg(`✅ Cloudflare DNS set up and verified${d.cloudflare?.zone ? ` on zone ${d.cloudflare.zone}` : ""} — ${d.domain} is live.`);
+      } else {
+        setDomMsg(`✅ Cloudflare DNS records created${d.cloudflare?.zone ? ` on zone ${d.cloudflare.zone}` : ""}. DNS can take a minute to propagate — hit Verify again shortly.`);
+      }
+      await loadDomains();
+    } catch (e: any) {
+      setDomMsg("⚠️ " + (e.message ?? "Cloudflare setup failed"));
+    } finally {
+      setDomBusy(false);
     }
   }
 
@@ -1171,6 +1209,25 @@ export default function SettingsPage() {
                   <span className="text-yellow-500/90"> Registrar is in SANDBOX mode (no real registration/charge).</span>
                 )}
               </p>
+              {domProviders && (
+                <div className="flex flex-wrap gap-1.5 text-[11px]">
+                  <span className={`rounded-full border px-2.5 py-1 ${domProviders.cloudflare_dns ? "text-green-400 border-green-400/30 bg-green-400/10" : "text-gray-500 border-line"}`}>
+                    ☁️ Cloudflare DNS {domProviders.cloudflare_dns ? "ready" : "off"}
+                  </span>
+                  <span className={`rounded-full border px-2.5 py-1 ${domProviders.vercel_attach ? "text-green-400 border-green-400/30 bg-green-400/10" : "text-gray-500 border-line"}`}>
+                    ▲ Vercel attach {domProviders.vercel_attach ? "ready" : "off"}
+                  </span>
+                  <span className={`rounded-full border px-2.5 py-1 ${domProviders.pollinations_image ? "text-green-400 border-green-400/30 bg-green-400/10" : "text-gray-500 border-line"}`}>
+                    🖼 Pollinations image {domProviders.pollinations_image ? "on" : (domProviders.image_fallback_provider || "off")}
+                  </span>
+                  <span className={`rounded-full border px-2.5 py-1 ${domProviders.pollinations_video ? "text-green-400 border-green-400/30 bg-green-400/10" : "text-gray-500 border-line"}`}>
+                    🎬 Pollinations video {domProviders.pollinations_video ? "ready" : "key missing"}
+                  </span>
+                  <span className="rounded-full border border-line px-2.5 py-1 text-gray-400">
+                    chain: {(domProviders.video_provider_chain ?? []).join(" → ") || "—"}
+                  </span>
+                </div>
+              )}
               {domMsg && <p className="text-xs text-yellow-500">{domMsg}</p>}
               <div className="flex gap-2 text-xs">
                 {(
@@ -1215,8 +1272,9 @@ export default function SettingsPage() {
                     </button>
                   </div>
                   <p className="text-[11px] text-gray-600">
-                    You&apos;ll get a TXT record (ownership) + a CNAME (traffic). Visitors on an active domain see
-                    your brand name; HTTPS is issued automatically on first visit (Caddy on-demand TLS).
+                    You&apos;ll get a TXT record (ownership) + a traffic record (usually CNAME; apex can use A).
+                    Visitors on an active domain see your brand name; HTTPS is issued automatically on first visit
+                    (Caddy on-demand TLS). {domProviders?.cloudflare_dns ? "Because Cloudflare DNS is connected, Connect now also tries one-tap record creation automatically when the zone exists in this account." : ""}
                   </p>
                 </div>
               ) : (
@@ -1397,6 +1455,16 @@ export default function SettingsPage() {
                             🔁 Renew now
                           </button>
                         )}
+                        {d.kind === "connected" && d.status === "pending_dns" && domProviders?.cloudflare_dns && (
+                          <button
+                            onClick={() => setupCloudflareDomain(d.id)}
+                            disabled={domBusy}
+                            title="If this zone is in your connected Cloudflare account, create the TXT + traffic records automatically"
+                            className="rounded-lg bg-accent/10 border border-accent/30 px-2.5 py-1 text-accent hover:bg-accent/20 transition disabled:opacity-40"
+                          >
+                            ☁️ Cloudflare setup
+                          </button>
+                        )}
                         {d.kind === "connected" && d.status === "pending_dns" && (
                           <button onClick={() => verifyDomain(d.id)} className="rounded-lg bg-white/10 px-2.5 py-1 text-gray-200 hover:bg-white/20 transition">
                             Verify
@@ -1413,8 +1481,15 @@ export default function SettingsPage() {
                             <CopyBtn text={d.dns.txt_value} />
                           </div>
                           <div className="flex items-center gap-1.5 rounded-lg bg-panel border border-line px-2 py-1.5 min-w-0">
-                            <span className="truncate">CNAME {d.domain} → {d.dns.cname_target || "(see docs)"}</span>
+                            <span className="truncate">
+                              {d.dns.cname_target
+                                ? `CNAME ${d.domain} → ${d.dns.cname_target}`
+                                : d.dns.a_record_ip
+                                  ? `A ${d.domain} → ${d.dns.a_record_ip}`
+                                  : `Traffic record ${d.domain} → (see docs)`}
+                            </span>
                             {d.dns.cname_target && <CopyBtn text={d.dns.cname_target} />}
+                            {!d.dns.cname_target && d.dns.a_record_ip && <CopyBtn text={d.dns.a_record_ip} />}
                           </div>
                         </div>
                       )}

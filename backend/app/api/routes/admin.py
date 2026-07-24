@@ -13,6 +13,7 @@ from ...db.models import Conversation, Device, Domain, Film, Message, UsageEvent
 from ...db.session import get_db
 from ...schemas import AdminFlagUpdate, AdminPasswordReset, AdminPlanUpdate, AdminPushTest, AdminSettingsUpdate
 from ...services import notify, soundtrack
+from ...services.brain_status import brain_status
 from ...services.platform_settings import (
     KEY_APP_PASSWORD,
     KEY_SIGNUP_OPEN,
@@ -84,6 +85,17 @@ async def admin_overview(db: AsyncSession = Depends(get_db), admin: User = Depen
             "plugins": bool(settings.PLUGIN_TOKEN_KEY or settings.JWT_SECRET),
             "platform_cname": bool(settings.PLATFORM_CNAME_TARGET),
         },
+        "providers": {
+            "cloudflare_dns": bool(settings.CLOUDFLARE_API_TOKEN),
+            "vercel_attach": bool(settings.VERCEL_API_TOKEN and settings.VERCEL_PROJECT_ID),
+            "platform_cname": settings.PLATFORM_CNAME_TARGET,
+            "platform_ip": settings.PLATFORM_A_RECORD_IP,
+            "pollinations_image": (settings.IMAGE_FALLBACK_PROVIDER or "").strip().lower() == "pollinations",
+            "pollinations_video": bool(settings.POLLINATIONS_API_KEY),
+            "image_fallback_provider": (settings.IMAGE_FALLBACK_PROVIDER or "").strip().lower(),
+            "video_provider_chain": [p.strip().lower() for p in (settings.VIDEO_PROVIDER or "").split(",") if p.strip()],
+        },
+        "brains": brain_status(),
     }
 
 

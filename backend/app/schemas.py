@@ -75,6 +75,7 @@ class ConnectDomainRequest(BaseModel):
     domain: str = Field(min_length=4, max_length=253)
     workspace_id: str | None = None
     brand_name: str | None = Field(default=None, max_length=80)
+    auto_cloudflare: bool = False  # try one-tap Cloudflare DNS setup right after connect
 
 
 class DomainContact(BaseModel):

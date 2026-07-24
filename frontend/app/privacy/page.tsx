@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Privacy Policy — Mood AI",
   description: "What Mood AI collects, why, and your choices. Short version: your chats belong to you.",
+  alternates: { canonical: "/privacy" },
 };
 
 const SEC = [

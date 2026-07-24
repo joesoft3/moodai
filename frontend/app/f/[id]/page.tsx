@@ -30,8 +30,9 @@ async function loadFilm(id: string): Promise<ShareFilm | null> {
   }
 }
 
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const film = await loadFilm(params.id);
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const film = await loadFilm(id);
   if (!film) {
     return { title: "Film not found · Mood AI", robots: { index: false } };
   }
@@ -52,8 +53,9 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   };
 }
 
-export default async function FilmSharePage({ params }: { params: { id: string } }) {
-  const film = await loadFilm(params.id);
+export default async function FilmSharePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const film = await loadFilm(id);
 
   return (
     <main className="min-h-screen flex flex-col items-center px-4 sm:px-6 py-10 sm:py-14">

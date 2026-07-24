@@ -5,6 +5,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import date, datetime, timezone
@@ -353,7 +354,7 @@ async def chat_stream(
     # retrieval spent on gen prompts, generation streams inline like ChatGPT.
     # NOTE: the web/mobile composers ship search=true by default — the media
     # intent must win over that (a creation turn never needs web context).
-    if settings.CHAT_MEDIA and not req.files and not req.plugins:
+    if settings.CHAT_MEDIA and not req.plugins:
         last_media: dict | None = None
         if not created:
             prev = (
@@ -368,13 +369,31 @@ async def chat_stream(
                 ml = prev.meta.get("media")
                 if isinstance(ml, list) and ml and isinstance(ml[0], dict):
                     last_media = ml[0]
-        intent: CreateIntent | None = None
-        if req.mode in ("image", "video") and req.message.strip():
-            intent = CreateIntent(kind=req.mode, prompt=req.message.strip())
-        else:
-            intent = route_media_intent(req.message, last_media)
-        if intent:
-            return await _media_stream(req, db, user, conv, created, intent, bg)
+
+        # Attached-image remix: if the user sends exactly one image and asks to add/change/remove
+        # something, keep them in the image studio flow instead of returning code/instructions.
+        if len(req.files) == 1 and (req.mode == "image" or _EDIT_IMAGE_RE.match(req.message or "")):
+            asset = await db.get(FileAsset, req.files[0])
+            if asset and asset.user_id == user.id and asset.mime.startswith("image/"):
+                return await _media_stream(
+                    req,
+                    db,
+                    user,
+                    conv,
+                    created,
+                    CreateIntent(kind="image", prompt=req.message.strip() or "Remix this image"),
+                    bg,
+                    reference_image=asset,
+                )
+
+        if not req.files:
+            intent: CreateIntent | None = None
+            if req.mode in ("image", "video") and req.message.strip():
+                intent = CreateIntent(kind=req.mode, prompt=req.message.strip())
+            else:
+                intent = route_media_intent(req.message, last_media)
+            if intent:
+                return await _media_stream(req, db, user, conv, created, intent, bg)
 
     messages, model, live_search = await build_messages(
         db, user, conv.id, req.message, req.files, req.search, created
@@ -551,6 +570,112 @@ def _video_opts_from_prompt(prompt: str) -> VideoOptions:
     return VideoOptions(duration=8, aspect_ratio=aspect, quality="720p", style=style)
 
 
+_MEDIA_REF_RE = re.compile(
+    r"\b(as described|as discussed|from (?:the )?chat|from above|based on (?:our )?(?:chat|conversation|discussion)|"
+    r"use (?:the )?(?:description|chat|conversation)|described (?:above|earlier)|what we discussed|same idea|that idea)\b",
+    re.IGNORECASE,
+)
+_EDIT_IMAGE_RE = re.compile(
+    r"^\s*(?:add|remove|replace|change|turn|make|edit|rework|restyle|transform|put|apply|clean up|enhance)\b",
+    re.IGNORECASE,
+)
+
+
+async def _resolve_chat_media_prompt(db: AsyncSession, conv_id: str, raw_message: str, prompt: str, kind: str) -> str:
+    """If the user says things like "generate the image as described in the chat",
+    turn the recent conversation into a concrete visual prompt.
+
+    Fail-open: if the context is thin or the rewrite model hiccups, we return the
+    original prompt so chat media never breaks because of the helper.
+    """
+    p = (prompt or "").strip()
+    msg = (raw_message or "").strip()
+    vague = len(p) < 28 or _MEDIA_REF_RE.search(msg) is not None or _MEDIA_REF_RE.search(p) is not None
+    if not vague:
+        return p
+
+    rows = (
+        await db.execute(
+            select(Message)
+            .where(Message.conversation_id == conv_id)
+            .order_by(Message.created_at.desc())
+            .limit(8)
+        )
+    ).scalars().all()
+    prior = [m for m in reversed(rows) if m.content and m.role in ("user", "assistant")]
+    # exclude the current command; we want the description that came BEFORE it
+    if prior and prior[-1].role == "user" and prior[-1].content.strip() == msg:
+        prior = prior[:-1]
+    if not prior:
+        return p
+
+    convo = "\n".join(f"{m.role}: {m.content[:700]}" for m in prior[-6:])
+    try:
+        rewrite = (
+            await llm.complete(
+                [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Turn this conversation into one concrete {kind} generation prompt. "
+                            f"Use only details already mentioned, keep it vivid and specific, no markdown, no bullets, under 120 words. "
+                            f"If the chat does not actually describe a clear visual scene, reply exactly with INSUFFICIENT_CONTEXT.\n\n"
+                            f"Conversation:\n{convo}\n\n"
+                            f"User request now: {msg}\n"
+                        ),
+                    }
+                ],
+                model=settings.MODEL_FAST,
+                max_tokens=180,
+            )
+        ).strip()
+        if rewrite and rewrite.upper() != "INSUFFICIENT_CONTEXT":
+            return rewrite[:900]
+    except Exception as e:
+        log.info("media prompt contextual rewrite skipped: %s", e)
+
+    # Cheap fallback: use the latest descriptive assistant/user turn if present.
+    for m in reversed(prior):
+        if len(m.content.strip()) >= 24:
+            return m.content.strip()[:900]
+    return p
+
+
+async def _resolve_reference_image_prompt(asset: FileAsset, instruction: str) -> str:
+    """Turn an attached reference image + edit instruction into a concrete image
+    generation prompt. This is a recreate/remix flow, not pixel-perfect editing,
+    but it keeps chat media in the image lane instead of dumping SVG/code.
+    """
+    try:
+        data_url = image_data_url(asset.path, asset.mime)
+        out = await llm.complete(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "You are an image director. Study the reference image and rewrite the user's request as ONE final image-generation prompt. "
+                                "Preserve the core subject/composition unless the instruction changes it. Return prompt only, no markdown, no code, no bullets. "
+                                "Unless the user explicitly asks for readable text, captions, subtitles or a visible wordmark, avoid any text in the final visual and express branding as a subtle motif instead.\n\n"
+                                f"Instruction: {instruction[:500]}"
+                            ),
+                        },
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                }
+            ],
+            model=settings.MODEL_VISION,
+            max_tokens=220,
+        )
+        out = (out or "").strip()
+        return out[:900] if out else instruction[:900]
+    except Exception as e:
+        log.info("reference-image prompt rewrite skipped: %s", e)
+        return instruction[:900]
+
+
 async def _media_stream(
     req: ChatRequest,
     db: AsyncSession,
@@ -559,6 +684,7 @@ async def _media_stream(
     created: bool,
     intent: CreateIntent,
     bg: BackgroundTasks,
+    reference_image: FileAsset | None = None,
 ) -> StreamingResponse:
     """🎨🎬 One SSE contract for in-chat creations: meta → media_start →
     (media_progress…) → media → done. The assistant message persists with
@@ -583,10 +709,15 @@ async def _media_stream(
     async def event_source():
         model_label = "Mood Canvas" if kind == "image" else "Mood Reel"
         try:
+            resolved_prompt = (
+                await _resolve_reference_image_prompt(reference_image, req.message)
+                if kind == "image" and reference_image is not None
+                else await _resolve_chat_media_prompt(db, conv.id, req.message, prompt, kind)
+            )
             yield sse({"type": "meta", "conversation_id": conv.id, "model": model_label, "created": created})
-            yield sse({"type": "media_start", "kind": kind, "prompt": prompt})
+            yield sse({"type": "media_start", "kind": kind, "prompt": resolved_prompt})
             if kind == "image":
-                url = await llm.generate_image(prompt)
+                url = await llm.generate_image(resolved_prompt)
                 if not url:
                     raise VideoGenerationError("Image provider returned no image")
                 async with SessionLocal() as ps:  # fresh session — request db may be closed mid-stream
@@ -598,7 +729,7 @@ async def _media_stream(
                     try:
                         # aspect/style hints live in the raw instruction; prompt is the cleaned idea
                         u, _ = await video.generate(
-                            prompt, _video_opts_from_prompt(f"{req.message} {prompt}"),
+                            resolved_prompt, _video_opts_from_prompt(f"{req.message} {resolved_prompt}"),
                             on_progress=lambda d: q.put_nowait(d),
                         )
                         await q.put({"type": "result", "url": u})
@@ -630,16 +761,16 @@ async def _media_stream(
                 async with SessionLocal() as ps:  # fresh session — request db may be closed mid-stream
                     render_url, stored = await _persist_generated_media(ps, user, provider_url, "video")
 
-            media_obj = {"kind": kind, "url": render_url, "prompt": prompt, "stored": stored}
+            media_obj = {"kind": kind, "url": render_url, "prompt": resolved_prompt, "stored": stored}
             if intent.refine:
                 caption = (
-                    f"🎨 **Remixed it** — *\"{prompt}\"*" if kind == "image"
-                    else f"🎬 **Re-cut your reel** — *\"{prompt}\"*"
+                    f"🎨 **Remixed it** — *\"{resolved_prompt}\"*" if kind == "image"
+                    else f"🎬 **Re-cut your reel** — *\"{resolved_prompt}\"*"
                 )
             else:
                 caption = (
-                    f"🎨 **Here's your image** — *\"{prompt}\"*" if kind == "image"
-                    else f"🎬 **Your reel is ready** — *\"{prompt}\"*"
+                    f"🎨 **Here's your image** — *\"{resolved_prompt}\"*" if kind == "image"
+                    else f"🎬 **Your reel is ready** — *\"{resolved_prompt}\"*"
                 )
             caption += "\n\n_Say “make it …” to iterate — it’s also saved to your Files library._"
             yield sse({"type": "media", **media_obj})

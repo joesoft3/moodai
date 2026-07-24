@@ -144,9 +144,10 @@ class Settings(BaseSettings):
     ROUTE_MODEL_CODING: str = ""      # e.g. gemini-2.5-pro | gpt-4o
     ROUTE_MODEL_AGENTS: str = ""
     ROUTE_MODEL_DEEPSEARCH: str = ""
-    # 🖼️ Free image stand-in while xAI image gen is unfunded. Pollinations serves
-    # real FLUX images with no key (probed live: HTTP 200, ~2s). When set to
-    # "pollinations", /chat/image returns a ready-to-render URL (same contract).
+    # 🖼️ Free image stand-in / fallback while xAI image gen is unfunded. Pollinations
+    # serves real FLUX images with no key (probed live: HTTP 200, ~2s). When set to
+    # "pollinations" and no xAI key exists, it becomes the primary image engine;
+    # with an xAI key present it acts as the automatic fallback on provider errors.
     IMAGE_FALLBACK_PROVIDER: str = ""
     POLLINATIONS_IMAGE_URL: str = "https://image.pollinations.ai/prompt"
     POLLINATIONS_MODEL: str = "flux"
@@ -182,6 +183,10 @@ class Settings(BaseSettings):
     VERCEL_API_TOKEN: str = ""        # optional: auto-attach verified domains to your Vercel project
     VERCEL_PROJECT_ID: str = ""
     VERCEL_TEAM_ID: str = ""
+    # Optional: one-tap DNS setup for BYO domains already hosted on Cloudflare.
+    # The token needs Zone:Read + DNS:Edit on the relevant zones.
+    CLOUDFLARE_API_TOKEN: str = ""
+    CLOUDFLARE_API_BASE_URL: str = "https://api.cloudflare.com/client/v4"
     BASE_DOMAIN: str = ""             # platform's own host (skipped in per-domain analytics)
     DOMAIN_SYNC_HOURS: int = 24       # how often the watchdog refreshes registrar expiry dates
     DOMAIN_RENEW_WINDOW_DAYS: int = 30  # show "Renew now" / send reminder inside this window

@@ -193,3 +193,27 @@ def test_image_pollinations_off_by_default(monkeypatch):
     from app.config import Settings
     s = Settings(_env_file=None)
     assert s.IMAGE_FALLBACK_PROVIDER == ""
+
+
+def test_image_falls_back_to_pollinations_when_primary_errors(monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_FALLBACK_PROVIDER", "pollinations")
+    monkeypatch.setattr(settings, "XAI_API_KEY", "xk")
+
+    class _Images:
+        async def generate(self, **kwargs):
+            raise RuntimeError("xAI image credits exhausted")
+
+    class _Client:
+        images = _Images()
+
+    monkeypatch.setattr(llm, "client_for", lambda provider: _Client())
+    url = asyncio.run(llm.generate_image("a neon robot in accra at night"))
+    assert url is not None and url.startswith("https://image.pollinations.ai/prompt/")
+    assert "neon%20robot" in url and "model=flux" in url
+
+
+def test_image_prompt_defaults_to_no_text_visuals(monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_FALLBACK_PROVIDER", "pollinations")
+    monkeypatch.setattr(settings, "XAI_API_KEY", "")
+    url = asyncio.run(llm.generate_image("a cozy puppy sleeping on a cloud"))
+    assert "no%20readable%20text" in url and "no%20captions" in url

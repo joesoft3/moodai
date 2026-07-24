@@ -85,6 +85,8 @@ uvicorn app.main:app --reload               # http://localhost:8000
 cd frontend
 npm install
 npm run dev                                 # http://localhost:3000
+npm run typecheck                           # route-aware Next.js typegen + TypeScript
+npm run verify                              # typecheck + production build
 ```
 
 ## Repo map

@@ -18,6 +18,7 @@ import {
   Wand2,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { StudioActionButton, StudioActionLink, StudioEmptyState, StudioHero, StudioNotice } from "@/components/StudioChrome";
 import { apiFetch } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 
@@ -303,17 +304,31 @@ export default function DesignPage() {
 
   const kp = presets?.kinds.find((k) => k.id === kind);
   const logos = designs.filter((d) => d.kind === "logo");
+  const activeOrders = orders.filter((o) => o.status !== "closed").length;
 
   return (
     <AppShell title="Design Studio">
       <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-        <header className="flex items-center gap-3">
-          <span className="grid h-11 w-11 place-items-center rounded-xl bg-accent/15 text-accent"><Palette size={22} /></span>
-          <div>
-            <h1 className="text-xl font-bold text-gray-100">Design Studio</h1>
-            <p className="text-xs text-gray-400">Flyers, logos & banners — AI art direction + print-grade 300 DPI output</p>
-          </div>
-        </header>
+        <StudioHero
+          icon={<Palette size={22} />}
+          title="Design Studio"
+          subtitle="Flyers, logos & banners — AI art direction, batch rendering, client links and print-grade 300 DPI exports."
+          actions={
+            <>
+              <StudioActionLink href="/images">🖼 Image Lab</StudioActionLink>
+              <StudioActionLink href="/films">🎬 Films</StudioActionLink>
+              <StudioActionLink href="/voice">🎙 Voice</StudioActionLink>
+              <StudioActionButton onClick={() => document.getElementById("brand-kit")?.scrollIntoView({ behavior: "smooth", block: "start" })}>⭐ Brand kit</StudioActionButton>
+              <StudioActionButton onClick={() => document.getElementById("client-mode")?.scrollIntoView({ behavior: "smooth", block: "start" })}>🛍 Client links</StudioActionButton>
+            </>
+          }
+          stats={[
+            { label: "Templates", value: templates.length },
+            { label: "Designs", value: designs.length },
+            { label: "Active client links", value: activeOrders },
+            { label: "Logo options", value: logos.length },
+          ]}
+        />
 
         {/* ✈️ templates */}
         {templates.length > 0 && (
@@ -403,7 +418,7 @@ export default function DesignPage() {
         </section>
 
         {/* ⭐ brand kit */}
-        <section className="rounded-xl border border-line bg-white/5 overflow-hidden">
+        <section id="brand-kit" className="rounded-xl border border-line bg-white/5 overflow-hidden">
           <button onClick={() => setBrandOpen((o) => !o)}
             className="touch-manipulation w-full flex items-center gap-2 px-4 py-3 text-left">
             <Star size={15} className={brand.brand_name ? "text-amber-400" : "text-gray-500"} />
@@ -513,7 +528,7 @@ export default function DesignPage() {
             Art-directing your brief → rendering {kp?.web[0]}×{kp?.web[1]} → upscaling to {kp?.print[0]}×{kp?.print[1]} at 300 DPI…
           </p>
         )}
-        {toast && <div className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs text-accent">{toast}</div>}
+        {toast && <StudioNotice tone="accent">{toast}</StudioNotice>}
 
         {/* 🔁 batch studio */}
         <section className="rounded-xl border border-line bg-white/5 p-4 space-y-3">
@@ -567,8 +582,8 @@ export default function DesignPage() {
         </section>
 
         {/* 🛍 client mode */}
-        <section className="rounded-xl border border-line bg-white/5 p-4 space-y-3">
-          <div className="flex items-center gap-2">
+        <section id="client-mode" className="rounded-xl border border-line bg-white/5 p-4 space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-sm font-semibold text-gray-100">🛍 Client mode</h2>
             <span className="text-[11px] text-gray-500">share a magic link — clients order, you approve in the ✋ inbox, they download from the same link</span>
           </div>
@@ -591,8 +606,8 @@ export default function DesignPage() {
                   </span>
                   {o.status !== "closed" && (
                     <>
-                      <button onClick={() => copyOrder(o.path)} className="touch-manipulation rounded-lg border border-line px-2 py-1 text-[10px] text-gray-300 hover:border-accent/50">🔗</button>
-                      <button onClick={() => closeOrder(o.id)} className="touch-manipulation rounded-lg border border-line px-2 py-1 text-[10px] text-gray-500 hover:text-red-400">✕</button>
+                      <button onClick={() => copyOrder(o.path)} className="touch-manipulation rounded-lg border border-line px-2.5 py-1 text-[10px] text-gray-300 hover:border-accent/50">🔗 Copy link</button>
+                      <button onClick={() => closeOrder(o.id)} className="touch-manipulation rounded-lg border border-line px-2.5 py-1 text-[10px] text-gray-500 hover:text-red-400">Close</button>
                     </>
                   )}
                 </div>
@@ -605,10 +620,12 @@ export default function DesignPage() {
         <section>
           <h2 className="text-sm font-semibold text-gray-100 mb-3">My designs <span className="text-gray-500 font-normal">({designs.length})</span></h2>
           {designs.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-line p-10 text-center text-sm text-gray-500">
-              <ImageIcon className="mx-auto mb-2 text-gray-600" />
-              No designs yet — tap a template above or describe your flyer/logo.
-            </div>
+            <StudioEmptyState
+              emoji="🎨"
+              title="No designs yet"
+              description="Tap a template, write your flyer/logo/banner idea, and generate your first studio-ready design."
+              actions={<StudioActionButton onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>⬆ Back to prompt</StudioActionButton>}
+            />
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {designs.map((d) => (
@@ -640,9 +657,9 @@ export default function DesignPage() {
                         value=""
                         onChange={(e) => { exportPreset(d.id, e.target.value, d); e.target.value = ""; }}
                         title="🖨 Print-shop & social exports"
-                        className="touch-manipulation rounded-lg border border-line bg-panel px-1.5 py-1.5 text-[10px] text-gray-300 outline-none hover:border-accent/50"
+                        className="touch-manipulation rounded-lg border border-line bg-panel px-2 py-1.5 text-[10px] text-gray-300 outline-none hover:border-accent/50"
                       >
-                        <option value="" disabled>🖨…</option>
+                        <option value="" disabled>Export</option>
                         {exports.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
                       </select>
                       <button onClick={() => remove(d.id)} title="Delete design"

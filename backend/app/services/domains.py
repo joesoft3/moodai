@@ -65,6 +65,16 @@ def _sync_cname_records(name: str) -> list[str]:
         return []
 
 
+def _sync_a_records(name: str) -> list[str]:
+    import dns.resolver
+
+    try:
+        answers = dns.resolver.resolve(name, "A", lifetime=6)
+        return [str(r.address).strip() for r in answers]
+    except Exception:
+        return []
+
+
 async def verify_txt(domain: str, token: str) -> bool:
     """TXT record _mood-verify.<domain> must contain our verification token."""
     records = await asyncio.to_thread(_sync_txt_records, f"_mood-verify.{domain}")
@@ -78,6 +88,137 @@ async def cname_points(domain: str, target: str) -> bool:
         if target in await asyncio.to_thread(_sync_cname_records, name):
             return True
     return False
+
+
+async def a_points(domain: str, ip: str) -> bool:
+    """Does <domain> publish an A record to the platform edge IP?
+
+    Helpful for apex domains on providers like Cloudflare where the operator may
+    use CNAME flattening or an explicit apex A record instead of a visible CNAME.
+    """
+    return ip.strip() in await asyncio.to_thread(_sync_a_records, domain)
+
+
+def zone_candidates(domain: str) -> list[str]:
+    """Longest-to-shortest suffixes to probe for a managed DNS zone.
+
+    Examples:
+      chat.example.com      → [chat.example.com, example.com]
+      a.b.example.co.uk     → [a.b.example.co.uk, b.example.co.uk, example.co.uk, co.uk]
+    The DNS provider simply returns the suffixes it actually manages.
+    """
+    bits = clean_domain(domain).split(".")
+    return [".".join(bits[i:]) for i in range(0, max(1, len(bits) - 1))]
+
+
+class CloudflareNotConfigured(Exception):
+    pass
+
+
+class CloudflareClient:
+    def __init__(self) -> None:
+        self._http = httpx.AsyncClient(timeout=httpx.Timeout(12.0, read=25.0))
+
+    @property
+    def configured(self) -> bool:
+        return bool(settings.CLOUDFLARE_API_TOKEN)
+
+    def _headers(self) -> dict[str, str]:
+        if not self.configured:
+            raise CloudflareNotConfigured(
+                "Cloudflare DNS not configured — set CLOUDFLARE_API_TOKEN (Zone:Read + DNS:Edit)."
+            )
+        return {
+            "Authorization": f"Bearer {settings.CLOUDFLARE_API_TOKEN}",
+            "Content-Type": "application/json",
+        }
+
+    @property
+    def _base(self) -> str:
+        return settings.CLOUDFLARE_API_BASE_URL.rstrip("/")
+
+    async def _api(self, method: str, path: str, **kwargs) -> Any:
+        r = await self._http.request(method, f"{self._base}{path}", headers=self._headers(), **kwargs)
+        if r.status_code >= 400:
+            raise DomainError(f"Cloudflare API failed ({r.status_code}): {r.text[:240]}")
+        data = r.json() if r.content else {}
+        if isinstance(data, dict) and data.get("success") is False:
+            errs = "; ".join(str(e.get("message") or e) for e in data.get("errors") or [])
+            raise DomainError(f"Cloudflare API error: {errs or 'unknown error'}")
+        return data
+
+    async def find_zone(self, domain: str) -> dict[str, str]:
+        for cand in zone_candidates(domain):
+            data = await self._api("GET", "/zones", params={"name": cand, "per_page": 1, "status": "active"})
+            rows = data.get("result") or []
+            if rows:
+                z = rows[0]
+                return {"id": str(z.get("id") or ""), "name": str(z.get("name") or cand)}
+        raise DomainError(
+            f"No accessible Cloudflare zone found for {domain}. Make sure the domain is in this Cloudflare account."
+        )
+
+    @staticmethod
+    def _relative_name(fqdn: str, zone_name: str) -> str:
+        fqdn = fqdn.strip().lower().rstrip(".")
+        fqdn = re.sub(r"^https?://", "", fqdn).split("/")[0]
+        zone_name = clean_domain(zone_name)
+        if fqdn == zone_name:
+            return "@"
+        suffix = f".{zone_name}"
+        if not fqdn.endswith(suffix):
+            raise DomainError(f"{fqdn} does not belong to Cloudflare zone {zone_name}")
+        return fqdn[: -len(suffix)]
+
+    async def upsert_record(self, zone_id: str, *, type: str, name: str, content: str, proxied: bool = False, ttl: int = 300) -> None:
+        q = await self._api("GET", f"/zones/{zone_id}/dns_records", params={"type": type, "name": name, "per_page": 1})
+        rows = q.get("result") or []
+        payload: dict[str, Any] = {"type": type, "name": name, "content": content, "ttl": ttl}
+        if type in {"A", "AAAA", "CNAME"}:
+            payload["proxied"] = proxied
+        if rows:
+            rid = rows[0].get("id")
+            await self._api("PUT", f"/zones/{zone_id}/dns_records/{rid}", json=payload)
+        else:
+            await self._api("POST", f"/zones/{zone_id}/dns_records", json=payload)
+
+    async def provision_connected_domain(self, domain: str, verification_token: str) -> dict[str, str]:
+        zone = await self.find_zone(domain)
+        zone_name = zone["name"]
+        zone_id = zone["id"]
+
+        txt_fqdn = f"_mood-verify.{clean_domain(domain)}"
+        txt_name = self._relative_name(txt_fqdn, zone_name)
+        await self.upsert_record(zone_id, type="TXT", name=txt_name, content=verification_token)
+
+        traffic_type = ""
+        traffic_name = ""
+        traffic_value = ""
+        if clean_domain(domain) == zone_name and settings.PLATFORM_A_RECORD_IP:
+            traffic_type = "A"
+            traffic_name = self._relative_name(domain, zone_name)
+            traffic_value = settings.PLATFORM_A_RECORD_IP.strip()
+            await self.upsert_record(zone_id, type="A", name=traffic_name, content=traffic_value)
+        elif settings.PLATFORM_CNAME_TARGET:
+            traffic_type = "CNAME"
+            traffic_name = self._relative_name(domain, zone_name)
+            traffic_value = settings.PLATFORM_CNAME_TARGET.rstrip(".")
+            await self.upsert_record(zone_id, type="CNAME", name=traffic_name, content=traffic_value)
+        elif settings.PLATFORM_A_RECORD_IP:
+            traffic_type = "A"
+            traffic_name = self._relative_name(domain, zone_name)
+            traffic_value = settings.PLATFORM_A_RECORD_IP.strip()
+            await self.upsert_record(zone_id, type="A", name=traffic_name, content=traffic_value)
+        else:
+            raise DomainError("Platform traffic target is not configured — set PLATFORM_CNAME_TARGET or PLATFORM_A_RECORD_IP.")
+
+        return {
+            "zone": zone_name,
+            "txt_name": txt_fqdn,
+            "record_type": traffic_type,
+            "record_name": domain,
+            "record_value": traffic_value,
+        }
 
 
 # --------------------------------------------------------------------- Registrar (GoDaddy)
@@ -202,6 +343,7 @@ class GoDaddyClient:
         return self._check("renew", r)
 
 
+cloudflare = CloudflareClient()
 registrar = GoDaddyClient()
 
 

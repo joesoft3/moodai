@@ -8,6 +8,7 @@ All calls are instrumented: mood_llm_requests_total / mood_llm_request_duration_
 """
 
 import logging
+import re
 import time
 from typing import Any, AsyncIterator
 
@@ -38,6 +39,12 @@ SEARCH_PARAMS: dict[str, Any] = {
     "sources": [{"type": "web"}, {"type": "x"}, {"type": "news"}],
 }
 
+_TEXTY_VISUAL_RE = re.compile(
+    r"\b(text|caption|subtitle|subtitles|watermark|logo text|title card|typography|letters|wordmark|signage|"
+    r"write\b|written\b|spell\b|words\b|label\b|overlay\b)\b",
+    re.IGNORECASE,
+)
+
 
 class LLMService:
     """OpenAI-compatible client with a provider registry + per-task router.
@@ -46,6 +53,27 @@ class LLMService:
     API key is skipped by the router (falls back to xai). Claude can be added via
     any OpenAI-compat gateway (e.g. LiteLLM) by pointing OPENAI_BASE_URL at it.
     """
+
+    @staticmethod
+    def _visual_no_text_guard(prompt: str) -> str:
+        p = (prompt or "").strip()
+        if not p:
+            return p
+        if _TEXTY_VISUAL_RE.search(p):
+            return p
+        return p + ", no readable text, no captions, no subtitles, no typography, no watermark, no logo overlays"
+
+    @staticmethod
+    def _pollinations_image_url(prompt: str) -> str:
+        from urllib.parse import quote
+        import secrets
+
+        q = quote(prompt[:800])
+        seed = secrets.randbelow(10**9)
+        return (
+            f"{settings.POLLINATIONS_IMAGE_URL}/{q}"
+            f"?width=1024&height=1024&seed={seed}&model={settings.POLLINATIONS_MODEL}&nologo=true&enhance=true"
+        )
 
     _clients: dict[str, AsyncOpenAI] = {}
 
@@ -358,17 +386,11 @@ class LLMService:
     async def generate_image(self, prompt: str, **opts: Any) -> str | None:
         # 🖼️ Free FLUX stand-in while xAI images are unfunded (xAI team credits = 0
         # and every Gemini image model is quota-0 on this key — both verified live).
-        if (settings.IMAGE_FALLBACK_PROVIDER or "").strip() == "pollinations":
-            from urllib.parse import quote
-            import secrets
-
-            q = quote(prompt[:800])
-            seed = secrets.randbelow(10**9)
+        prompt = self._visual_no_text_guard(prompt)
+        fallback = (settings.IMAGE_FALLBACK_PROVIDER or "").strip().lower()
+        if fallback == "pollinations" and not settings.XAI_API_KEY:
             LLM_COUNT.labels(model=settings.POLLINATIONS_MODEL, kind="image").inc()
-            return (
-                f"{settings.POLLINATIONS_IMAGE_URL}/{q}"
-                f"?width=1024&height=1024&seed={seed}&model={settings.POLLINATIONS_MODEL}&nologo=true&enhance=true"
-            )
+            return self._pollinations_image_url(prompt)
         m = settings.MODEL_IMAGE
         LLM_COUNT.labels(model=m, kind="image").inc()
         t0 = time.perf_counter()
@@ -378,7 +400,17 @@ class LLMService:
             if getattr(d, "url", None):
                 return d.url
             b64 = getattr(d, "b64_json", None)
-            return f"data:image/png;base64,{b64}" if b64 else None
+            if b64:
+                return f"data:image/png;base64,{b64}"
+            if fallback == "pollinations":
+                return self._pollinations_image_url(prompt)
+            return None
+        except Exception:
+            if fallback == "pollinations":
+                log.warning("primary image provider failed — falling back to Pollinations", exc_info=True)
+                LLM_COUNT.labels(model=settings.POLLINATIONS_MODEL, kind="image").inc()
+                return self._pollinations_image_url(prompt)
+            raise
         finally:
             LLM_LAT.labels(model=m, kind="image").observe(time.perf_counter() - t0)
 
