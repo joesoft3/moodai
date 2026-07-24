@@ -14,6 +14,11 @@ Prereq: your app already runs ([GO-LIVE-CLICKSHEET](GO-LIVE-CLICKSHEET.md) done)
 1. 🖱 Netlify site → **Domain management → Add a domain** → type `app.yourdomain.com` → **Verify → Add domain**.
 2. 🖱 At your DNS provider (Cloudflare, GoDaddy, Namecheap…) add:
 
+> Tip: if the zone is already in your Cloudflare account and the backend has
+> `CLOUDFLARE_API_TOKEN` with `Zone:Read` + `DNS:Edit`, Settings → Domains now
+> tries Cloudflare DNS setup automatically during **Connect**, and also shows a
+> **☁️ Cloudflare setup** button to retry/create the TXT + traffic records on demand.
+
    | Type | Host/Name | Value |
    |---|---|---|
    | `CNAME` | `app` | `SITE.NETLIFY.APP` |

@@ -53,7 +53,7 @@ STYLE_PRESETS: dict[str, str] = {
 
 QUALITY_TAGS = {"720p": "high quality", "1080p": "high quality, sharp 1080p detail"}
 
-NEGATIVE_DEFAULT = "morphing, flicker, warped faces, distorted hands, text artifacts, watermark, jitter"
+NEGATIVE_DEFAULT = "morphing, flicker, warped faces, distorted hands, readable text, text overlays, captions, subtitles, logo overlays, watermark, jitter"
 
 # 🎬 Mood Reel scene beats — deterministic camera-language variations wrapped
 # around the user's idea (no LLM spent: daily-quota economy).

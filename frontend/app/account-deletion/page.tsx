@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: "Delete your account — Mood AI",
   description:
     "How to permanently delete your Mood AI account and all associated data — in the app, on the web, or by request.",
+  alternates: { canonical: "/account-deletion" },
 };
 
 const SEC = [

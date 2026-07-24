@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileAudio, Loader2, Mic, RotateCcw, Square, Volume2 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { StudioActionButton, StudioActionLink, StudioHero, StudioNotice } from "@/components/StudioChrome";
 import { API, apiFetch, token } from "@/lib/api";
 import { useConversations } from "@/lib/conversations";
 import { useRecorder } from "@/lib/use-recorder";
@@ -250,6 +251,26 @@ export default function VoicePage() {
       }
     >
       <div className="flex-1 min-h-0 flex flex-col items-center px-4 py-6 compact-v">
+        <div className="w-full max-w-3xl mb-4">
+          <StudioHero
+            title="Voice Studio"
+            subtitle="Realtime voice chat, barge-in conversation and audio/video analysis in one focused workspace."
+            actions={
+              <>
+                <StudioActionButton onClick={() => router.push("/chat")}>💬 Open chat</StudioActionButton>
+                <StudioActionButton onClick={() => router.push("/images")}>🎬 Media Lab</StudioActionButton>
+                <StudioActionButton onClick={() => router.push("/films")}>🎞 Films</StudioActionButton>
+                {sessionConv && <StudioActionButton onClick={reset} tone="accent">↻ New session</StudioActionButton>}
+              </>
+            }
+            stats={[
+              { label: "Connection", value: conn === "live" ? "Live" : conn === "connecting" ? "Connecting" : "Offline" },
+              { label: "Phase", value: phase },
+              { label: "Turns", value: turns.length },
+              { label: "Analysis ready", value: aResult ? "Yes" : "No" },
+            ]}
+          />
+        </div>
         <div className="shrink-0 flex flex-col items-center gap-4 sm:gap-6 py-2 sm:py-4 compact-v">
           <div className="relative orb-scale h-44 w-44 xs:h-52 xs:w-52 sm:h-56 sm:w-56 md:h-72 md:w-72 lg:h-80 lg:w-80">
             <div
@@ -283,7 +304,7 @@ export default function VoicePage() {
           <p className="text-[11px] text-gray-600 -mt-2">
             {conn === "live" ? "⚡ realtime session · streaming replies · barge-in supported" : conn === "connecting" ? "connecting…" : "offline"}
           </p>
-          {error && <p className="text-xs text-yellow-500 max-w-xs text-center">{error}</p>}
+          {error && <div className="max-w-xs text-center w-full"><StudioNotice tone="warn">{error}</StudioNotice></div>}
         </div>
 
         {/* 🎵 analyze an audio or video file (song, podcast, voice note, clip) */}

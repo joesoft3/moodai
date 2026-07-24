@@ -1,4 +1,12 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Mood AI — Grok-class chat, arena, research and AI films",
+  description:
+    "Mood AI is a Grok-class assistant for streaming chat, live-cited research, blind model debates, and AI films with voice and sound.",
+  alternates: { canonical: "/" },
+};
 
 const badges = ["S1 Mood-4", "⚔️ Arena v2", "🎙 Cinema Sound", "🔭 Deep Research", "🧠 Memory", "🔌 Plugins"];
 

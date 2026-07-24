@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-export default function OrderPage({ params }: { params: { token: string } }) {
-  return <OrderClient token={params.token} />;
+export default async function OrderPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  return <OrderClient token={token} />;
 }

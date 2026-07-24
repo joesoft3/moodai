@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Clapperboard, Clapperboard as FilmIcon, Copy, Loader2, Megaphone, PencilLine, RefreshCw, RotateCcw, Trash2, X } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { StudioActionLink, StudioEmptyState, StudioHero, StudioNotice } from "@/components/StudioChrome";
 import { apiFetch } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 
@@ -137,37 +138,60 @@ export default function FilmsPage() {
   }
 
   const rendering = (films ?? []).filter((f) => f.status === "rendering");
+  const doneCount = (films ?? []).filter((f) => f.status === "done").length;
+  const failedCount = (films ?? []).filter((f) => f.status === "failed").length;
+  const totalViews = (films ?? []).reduce((sum, f) => sum + (f.views ?? 0), 0);
 
   return (
     <AppShell title="Films">
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-6">
         <div className="max-w-5xl 2xl:max-w-7xl mx-auto space-y-5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-lg font-semibold flex items-center gap-2">
-              <FilmIcon size={18} className="text-accent" /> Your films
-            </h1>
-            {rendering.length > 0 && (
-              <span className="text-[11px] rounded-full border border-accent/30 bg-accent/10 text-accent px-2.5 py-0.5">
-                ⏺ {rendering.length} rendering
-              </span>
-            )}
-            <button
-              onClick={load}
-              className="ml-auto rounded-xl bg-white/5 border border-line p-2 text-gray-300 hover:bg-white/10 transition"
-              title="Refresh"
-            >
-              <RefreshCw size={14} />
-            </button>
-          </div>
-          {msg && <p className="text-xs text-yellow-500">{msg}</p>}
+          <StudioHero
+            icon={<FilmIcon size={22} />}
+            title="Films"
+            subtitle="Finished storyboard films, queued renders, public share links and social post drafts in one place."
+            actions={
+              <>
+                <StudioActionLink href="/images">🎬 Open video studio</StudioActionLink>
+                <StudioActionLink href="/design">🎨 Design Studio</StudioActionLink>
+                <StudioActionLink href="/voice">🎙 Voice</StudioActionLink>
+                <button
+                  onClick={load}
+                  className="rounded-xl bg-white/5 border border-line px-3 py-2 text-xs text-gray-300 hover:bg-white/10 transition flex items-center gap-1.5"
+                  title="Refresh"
+                >
+                  <RefreshCw size={13} /> Refresh
+                </button>
+              </>
+            }
+            stats={[
+              { label: "Films", value: films?.length ?? 0 },
+              { label: "Rendering", value: rendering.length },
+              { label: "Finished", value: doneCount },
+              { label: "Failed / views", value: failedCount ? `${failedCount} / ${totalViews}` : totalViews },
+            ]}
+          />
+          {rendering.length > 0 && (
+            <StudioNotice tone="accent">
+              ⏺ {rendering.length} film{rendering.length === 1 ? " is" : "s are"} still rendering in the background.
+            </StudioNotice>
+          )}
+          {msg && <StudioNotice tone="accent">{msg}</StudioNotice>}
 
           {!films ? (
             <p className="text-sm text-gray-600">Loading…</p>
           ) : films.length === 0 ? (
-            <div className="text-center text-gray-600 pt-20 space-y-2">
-              <div className="text-4xl">🎬</div>
-              <p className="text-sm">No films yet — open the 🎬 Video Studio, pick "2-scene film" or more, and direct your first movie.</p>
-            </div>
+            <StudioEmptyState
+              emoji="🎬"
+              title="No films yet"
+              description='Open the video studio, pick "2-scene film" or more, and direct your first movie.'
+              actions={
+                <>
+                  <StudioActionLink href="/images">Open video studio</StudioActionLink>
+                  <StudioActionLink href="/voice">Preview voices</StudioActionLink>
+                </>
+              }
+            />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               {films.map((f) => (

@@ -162,6 +162,43 @@ def test_image_provider_failure_is_friendly(env, monkeypatch):
     run(_t())
 
 
+def test_image_can_use_prior_chat_description(env, monkeypatch):
+    captured = {}
+
+    async def fake_stream(*a, **k):
+        yield {"type": "delta", "text": "A regal lion mascot wearing gold armor, standing in front of a neon Accra skyline at dusk."}
+
+    async def fake_complete(messages, model=None, max_tokens=None, **kw):
+        return "A regal lion mascot wearing gold armor, standing in front of a neon Accra skyline at dusk"
+
+    async def fake_image(prompt, **opts):
+        captured["prompt"] = prompt
+        return "https://provider.example/lion.png"
+
+    monkeypatch.setattr(chatmod.llm, "stream_chat", fake_stream)
+    monkeypatch.setattr(chatmod.llm, "complete", fake_complete)
+    monkeypatch.setattr(chatmod.llm, "generate_image", fake_image)
+
+    async def _t():
+        async with await _client() as c:
+            tk = await _token(c)
+            first = await _post_chat(c, tk, {
+                "conversation_id": None, "message": "Describe a strong mascot concept for my startup",
+                "files": [], "search": False,
+            })
+            conv_id = next(e for e in first if e["type"] == "meta")["conversation_id"]
+            evs = await _post_chat(c, tk, {
+                "conversation_id": conv_id, "message": "create an image as described in the chat",
+                "files": [], "search": False,
+            })
+            assert any(e["type"] == "media" for e in evs)
+            assert "regal lion mascot" in captured["prompt"].lower()
+            start = next(e for e in evs if e["type"] == "media_start")
+            assert "regal lion mascot" in start["prompt"].lower()
+
+    run(_t())
+
+
 # ---------------------------------------------------------------- video flow
 def test_video_flow_sse_contract(env, monkeypatch):
     async def fake_video(prompt, opts, image=None, on_progress=None):
@@ -220,6 +257,43 @@ def test_video_aspect_hint_vertical(env, monkeypatch):
                 "files": [], "search": False,
             })
             assert seen["aspect"] == "9:16" and seen["style"] == "anime"
+
+    run(_t())
+
+
+def test_video_can_use_prior_chat_description(env, monkeypatch):
+    captured = {}
+
+    async def fake_stream(*a, **k):
+        yield {"type": "delta", "text": "A cinematic drone shot over Cape Coast castle at sunrise, warm mist, ocean spray, and slow-moving fishing boats."}
+
+    async def fake_complete(messages, model=None, max_tokens=None, **kw):
+        return "A cinematic drone shot over Cape Coast castle at sunrise, warm mist, ocean spray, and slow-moving fishing boats"
+
+    async def fake_video(prompt, opts, image=None, on_progress=None):
+        captured["prompt"] = prompt
+        return "https://media.example/capecoast.mp4", False
+
+    monkeypatch.setattr(chatmod.llm, "stream_chat", fake_stream)
+    monkeypatch.setattr(chatmod.llm, "complete", fake_complete)
+    monkeypatch.setattr(chatmod.video, "generate", fake_video)
+
+    async def _t():
+        async with await _client() as c:
+            tk = await _token(c)
+            first = await _post_chat(c, tk, {
+                "conversation_id": None, "message": "Describe an opening scene for a travel promo in Ghana",
+                "files": [], "search": False,
+            })
+            conv_id = next(e for e in first if e["type"] == "meta")["conversation_id"]
+            evs = await _post_chat(c, tk, {
+                "conversation_id": conv_id, "message": "make a video from the chat description",
+                "files": [], "search": False,
+            })
+            assert any(e["type"] == "media" and e["kind"] == "video" for e in evs)
+            assert "cape coast castle" in captured["prompt"].lower()
+            start = next(e for e in evs if e["type"] == "media_start")
+            assert "cape coast castle" in start["prompt"].lower()
 
     run(_t())
 
@@ -394,5 +468,47 @@ def test_attached_files_still_skip_media_routing(env, monkeypatch):
             })
             assert not any(e["type"] == "media" for e in evs)
             assert any(e["type"] == "delta" for e in evs)
+
+    run(_t())
+
+
+def test_attached_image_edit_stays_in_media_flow(env, monkeypatch, tmp_path):
+    from PIL import Image
+    from app.db.models import FileAsset, User
+
+    img_path = tmp_path / "ref.png"
+    Image.new("RGB", (8, 8), color=(240, 220, 200)).save(img_path)
+
+    async def fake_complete(messages, model=None, max_tokens=None, **kw):
+        return "A cozy cream-colored puppy on a pastel cloud with a subtle softmoodtv-inspired icon motif, no readable text"
+
+    captured = {}
+
+    async def fake_image(prompt, **opts):
+        captured["prompt"] = prompt
+        return "https://provider.example/remix.png"
+
+    monkeypatch.setattr(chatmod.llm, "complete", fake_complete)
+    monkeypatch.setattr(chatmod.llm, "generate_image", fake_image)
+
+    async def _t():
+        async with await _client() as c:
+            tk = await _token(c)
+            uid = (await c.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {tk}"})).json()["id"]
+            async with env() as s:
+                s.add(FileAsset(user_id=uid, filename="ref.png", mime="image/png", path=str(img_path), size_bytes=img_path.stat().st_size))
+                await s.commit()
+                from sqlalchemy import select
+                asset = (await s.execute(select(FileAsset).order_by(FileAsset.created_at.desc()))).scalars().first()
+                fid = asset.id
+            evs = await _post_chat(c, tk, {
+                "conversation_id": None,
+                "message": "Add softmoodtv to this image",
+                "files": [fid],
+                "search": False,
+            })
+            assert any(e["type"] == "media" and e["kind"] == "image" for e in evs), evs
+            assert "puppy" in captured["prompt"].lower()
+            assert "no readable text" in captured["prompt"].lower()
 
     run(_t())

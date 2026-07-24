@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown, Clapperboard, Download, Image as ImageIcon, Loader2, Sparkles, Wand2, X } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { StudioActionButton, StudioActionLink, StudioEmptyState, StudioHero, StudioNotice } from "@/components/StudioChrome";
 import { API, apiFetch, token } from "@/lib/api";
 
 interface ImgItem {
@@ -535,12 +537,54 @@ export default function ImagesPage() {
     setDuration(t.duration);
   }
 
+  function stopCurrentRender() {
+    abortRef.current?.abort();
+    setInfo("⏹ Render stopped — your previous result is safe in the gallery.");
+  }
+
   const busyVideo = abortRef.current !== null;
 
   return (
     <AppShell title="Media Lab">
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-6">
         <div className="max-w-5xl 2xl:max-w-7xl mx-auto space-y-6">
+          <StudioHero
+            title="Media Lab"
+            subtitle="Generate images, direct videos, animate stills and auto-edit clips from one clean studio."
+            actions={
+              <>
+                {([
+                  { id: "image" as const, label: "🖼 Images", Icon: ImageIcon },
+                  { id: "video" as const, label: "🎬 Video Studio", Icon: Clapperboard },
+                ] as const).map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setMode(m.id)}
+                    className={`rounded-xl border px-3 py-2 text-xs transition flex items-center gap-1.5 ${
+                      mode === m.id
+                        ? "bg-accent/15 border-accent/40 text-accent"
+                        : "bg-white/5 border-line text-gray-300 hover:border-accent/40 hover:bg-white/10"
+                    }`}
+                  >
+                    <m.Icon size={13} /> {m.label}
+                  </button>
+                ))}
+                <StudioActionButton onClick={() => document.getElementById("main-generator")?.scrollIntoView({ behavior: "smooth", block: "start" })}>⬇ Main generator</StudioActionButton>
+                <StudioActionLink href="/films">🎞 Films</StudioActionLink>
+                <StudioActionLink href="/design">🎨 Design Studio</StudioActionLink>
+                {busyVideo && <StudioActionButton onClick={stopCurrentRender} tone="warn">⏹ Stop render</StudioActionButton>}
+              </>
+            }
+            stats={[
+              { label: mode === "video" ? "Videos" : "Images", value: mode === "video" ? videos.length : items.length },
+              { label: "Films", value: videos.filter((v) => (v.meta?.scenes ?? 1) > 1).length },
+              { label: "Edits", value: edits.length },
+              { label: "Templates", value: TEMPLATES.length },
+            ]}
+          />
+          <StudioNotice>
+            <span className="font-semibold text-gray-200">Specialized workflows</span> — animate a photo, auto-edit a clip, then jump into the main image or video studio below.
+          </StudioNotice>
           {/* 📷➡️🎬 Image → Video */}
           <section className="rounded-xl border border-line bg-white/5 overflow-hidden">
             <button onClick={() => setI2vOpen((o) => !o)} className="touch-manipulation w-full flex items-center gap-2 px-4 py-3 text-left">
@@ -661,28 +705,6 @@ export default function ImagesPage() {
               </div>
             )}
           </section>
-          {/* Mode toggle */}
-          <div className="flex gap-2 text-xs">
-            {(
-              [
-                { id: "image" as const, label: "🖼 Images", Icon: ImageIcon },
-                { id: "video" as const, label: "🎬 Video Studio", Icon: Clapperboard },
-              ] as const
-            ).map((m) => (
-              <button
-                key={m.id}
-                onClick={() => setMode(m.id)}
-                className={`rounded-full border px-3 py-1.5 transition flex items-center gap-1.5 ${
-                  mode === m.id
-                    ? "bg-accent/15 border-accent/40 text-accent"
-                    : "bg-white/5 border-line text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <m.Icon size={13} /> {m.label}
-              </button>
-            ))}
-          </div>
-
           {/* Video Studio pro panel */}
           {mode === "video" && (
             <div className="rounded-2xl border border-line bg-panel p-3 sm:p-4 space-y-3">
@@ -847,7 +869,7 @@ export default function ImagesPage() {
           )}
 
           {/* Prompt bar */}
-          <div className="flex gap-2">
+          <div id="main-generator" className="flex gap-2">
             <input
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -880,8 +902,8 @@ export default function ImagesPage() {
               <Sparkles size={16} /> <span className="hidden sm:inline">Generate</span>
             </button>
           </div>
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          {info && <p className="text-sm text-accent">{info}</p>}
+          {error && <StudioNotice tone="warn">{error}</StudioNotice>}
+          {info && <StudioNotice tone="accent">{info}</StudioNotice>}
 
           {/* Gallery: 2 cols phone, 3 tablet, 4 desktop, 5 ultrawide */}
           {mode === "video" ? (
@@ -938,11 +960,12 @@ export default function ImagesPage() {
                 )}
               </div>
             ) : (
-              <div className="text-center text-gray-600 pt-20 space-y-2">
-                <div className="text-4xl">🎬</div>
-                <p className="text-sm">Text-to-video with pure sound & voice: pick a template, tune duration / aspect / style, add an 🎙 AI voiceover or 🎼 full cinema mix, ✨ Enhance, generate.</p>
-                <p className="text-[11px]">Generation can take 1–5 minutes (sound adds ~20s). Daily limits apply per plan.</p>
-              </div>
+              <StudioEmptyState
+                emoji="🎬"
+                title="No videos yet"
+                description="Pick a template, tune duration / aspect / style, add an AI voiceover or cinema mix, then generate your first clip."
+                actions={<StudioActionButton onClick={() => document.getElementById("main-generator")?.scrollIntoView({ behavior: "smooth", block: "start" })}>⬇ Start generating</StudioActionButton>}
+              />
             )
           ) : items.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2 sm:gap-3">
@@ -970,10 +993,12 @@ export default function ImagesPage() {
               )}
             </div>
           ) : (
-            <div className="text-center text-gray-600 pt-20 space-y-2">
-              <div className="text-4xl">🖼️</div>
-              <p className="text-sm">Describe anything — Mood draws it with Grok&rsquo;s image model.</p>
-            </div>
+            <StudioEmptyState
+              emoji="🖼️"
+              title="No images yet"
+              description="Describe anything clearly and the image studio will render it here."
+              actions={<StudioActionButton onClick={() => document.getElementById("main-generator")?.scrollIntoView({ behavior: "smooth", block: "start" })}>⬇ Start generating</StudioActionButton>}
+            />
           )}
         </div>
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { apiFetch, token } from "@/lib/api";
 import { BrandMark, useBrand } from "@/lib/brand";
 
@@ -11,8 +11,13 @@ import { BrandMark, useBrand } from "@/lib/brand";
  * - Domain-gated teams: the backend rejects accounts whose email isn't on the bound domain
  * - White-labeled when opened on a verified custom domain
  */
-export default function JoinPage({ params }: { params: { token: string } }) {
+export default function JoinPage() {
   const router = useRouter();
+  const params = useParams<{ token: string | string[] }>();
+  const inviteToken = useMemo(() => {
+    const raw = params?.token;
+    return Array.isArray(raw) ? raw[0] ?? "" : raw ?? "";
+  }, [params]);
   const brand = useBrand();
   const [state, setState] = useState<{
     phase: "working" | "ok" | "err";
@@ -21,13 +26,14 @@ export default function JoinPage({ params }: { params: { token: string } }) {
   }>({ phase: "working" });
 
   useEffect(() => {
+    if (!inviteToken) return;
     if (!token.get()) {
-      router.replace(`/login?next=${encodeURIComponent(`/join/${params.token}`)}`);
+      router.replace(`/login?next=${encodeURIComponent(`/join/${inviteToken}`)}`);
       return;
     }
     apiFetch<{ workspace: { id: string; name: string }; already_member?: boolean }>("/workspaces/join", {
       method: "POST",
-      body: JSON.stringify({ token: params.token }),
+      body: JSON.stringify({ token: inviteToken }),
     })
       .then((j) =>
         setState({
@@ -37,7 +43,7 @@ export default function JoinPage({ params }: { params: { token: string } }) {
         })
       )
       .catch((e: any) => setState({ phase: "err", msg: e.message ?? "This invite couldn't be used." }));
-  }, [params.token, router]);
+  }, [inviteToken, router]);
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
@@ -54,7 +60,7 @@ export default function JoinPage({ params }: { params: { token: string } }) {
             <p className="text-sm text-gray-300">{state.msg}</p>
             <p className="text-lg font-semibold text-gray-100">👥 {state.ws.name}</p>
             <button
-              onClick={() => router.push(`/chat?ws=${state.ws!.id}`)}
+              onClick={() => state.ws && router.push(`/chat?ws=${state.ws.id}`)}
               className="w-full rounded-xl bg-accent text-black font-semibold py-2.5 hover:brightness-110 transition"
             >
               Open team chat →

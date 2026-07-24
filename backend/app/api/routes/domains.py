@@ -18,9 +18,12 @@ from ...db.session import SessionLocal, get_db
 from ...schemas import ConnectDomainRequest, DomainRenewRequest, DomainUpdateRequest, PurchaseDomainRequest
 from ...services.domain_stats import analytics as domain_analytics
 from ...services.domains import (
+    CloudflareNotConfigured,
     DomainError,
     RegistrarNotConfigured,
+    a_points,
     clean_domain,
+    cloudflare,
     cname_points,
     parse_expiry,
     price_with_markup,
@@ -67,6 +70,7 @@ def _out(d: Domain) -> dict:
                 "txt_name": f"_mood-verify.{d.domain}",
                 "txt_value": d.verification_token,
                 "cname_target": settings.PLATFORM_CNAME_TARGET,
+                "a_record_ip": settings.PLATFORM_A_RECORD_IP,
             }
             if d.kind == "connected" and d.status == "pending_dns"
             else None
@@ -81,17 +85,44 @@ async def _owned(db: AsyncSession, user: User, did: str) -> Domain:
     return d
 
 
+async def _dns_checks(d: Domain) -> dict[str, bool]:
+    txt_ok = await verify_txt(d.domain, d.verification_token)
+    cname_ok = bool(settings.PLATFORM_CNAME_TARGET) and await cname_points(d.domain, settings.PLATFORM_CNAME_TARGET)
+    a_ok = bool(settings.PLATFORM_A_RECORD_IP) and await a_points(d.domain, settings.PLATFORM_A_RECORD_IP)
+    return {"txt_verified": txt_ok, "cname_points": cname_ok, "a_record_points": a_ok}
+
+
+def _dns_ready(checks: dict[str, bool]) -> bool:
+    return bool(
+        checks.get("txt_verified")
+        and (
+            checks.get("cname_points")
+            or checks.get("a_record_points")
+            or (not settings.PLATFORM_CNAME_TARGET and not settings.PLATFORM_A_RECORD_IP)
+        )
+    )
+
+
 # ---------------------------------------------------------------- capabilities
 @router.get("/providers")
 async def domain_providers(user: User = Depends(get_current_user)):
     """Which parts of the domains feature are live (drives the UI)."""
+    video_chain = [p.strip().lower() for p in (settings.VIDEO_PROVIDER or "").split(",") if p.strip()]
+    image_fallback = (settings.IMAGE_FALLBACK_PROVIDER or "").strip().lower()
     return {
         "registrar": registrar.configured,
         "registrar_env": settings.GODADDY_ENV,
         "stripe": bool(settings.STRIPE_SECRET_KEY),
         "platform_cname": settings.PLATFORM_CNAME_TARGET,
+        "platform_ip": settings.PLATFORM_A_RECORD_IP,
+        "cloudflare_dns": cloudflare.configured,
         "vercel_attach": bool(settings.VERCEL_API_TOKEN and settings.VERCEL_PROJECT_ID),
         "markup_pct": settings.DOMAIN_MARKUP_PCT,
+        "image_fallback_provider": image_fallback,
+        "pollinations_image": image_fallback == "pollinations",
+        "pollinations_video": bool(settings.POLLINATIONS_API_KEY),
+        "video_provider_chain": video_chain,
+        "video_pollinations_enabled": "pollinations" in video_chain,
     }
 
 
@@ -162,7 +193,50 @@ async def connect_domain(
     )
     db.add(d)
     await db.commit()
-    return _out(d)
+
+    cloudflare_info = None
+    cloudflare_error = None
+    if req.auto_cloudflare and cloudflare.configured:
+        try:
+            cloudflare_info = await cloudflare.provision_connected_domain(d.domain, d.verification_token)
+        except (CloudflareNotConfigured, DomainError) as e:
+            cloudflare_error = str(e)
+
+    checks = await _dns_checks(d)
+    if _dns_ready(checks):
+        d.status = "active"
+        await db.commit()
+        if await vercel_attach(d.domain):
+            log.info("domain %s attached to Vercel project", d.domain)
+
+    return {
+        **_out(d),
+        "cloudflare": cloudflare_info,
+        "cloudflare_error": cloudflare_error,
+        "checks": checks,
+    }
+
+
+@router.post("/{did}/cloudflare/setup")
+async def cloudflare_setup_domain(did: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """One-tap DNS setup for BYO domains already hosted on this Cloudflare account."""
+    d = await _owned(db, user, did)
+    if d.kind != "connected":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only connected domains use Cloudflare DNS setup")
+    try:
+        info = await cloudflare.provision_connected_domain(d.domain, d.verification_token)
+    except CloudflareNotConfigured as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
+    except DomainError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
+
+    checks = await _dns_checks(d)
+    if _dns_ready(checks):
+        d.status = "active"
+        await db.commit()
+        if await vercel_attach(d.domain):
+            log.info("domain %s attached to Vercel project", d.domain)
+    return {**_out(d), "cloudflare": info, "checks": checks}
 
 
 @router.post("/{did}/verify")
@@ -170,23 +244,29 @@ async def verify_domain(did: str, db: AsyncSession = Depends(get_db), user: User
     d = await _owned(db, user, did)
     if d.status == "active":
         return _out(d)
-    txt_ok = await verify_txt(d.domain, d.verification_token)
-    cname_ok = bool(settings.PLATFORM_CNAME_TARGET) and await cname_points(d.domain, settings.PLATFORM_CNAME_TARGET)
-    if txt_ok and (cname_ok or not settings.PLATFORM_CNAME_TARGET):
+    checks = await _dns_checks(d)
+    if _dns_ready(checks):
         d.status = "active"
         await db.commit()
         if await vercel_attach(d.domain):
             log.info("domain %s attached to Vercel project", d.domain)
         return _out(d)
+    traffic_hint = ""
+    if settings.PLATFORM_CNAME_TARGET:
+        traffic_hint = f" and CNAME {d.domain} → {settings.PLATFORM_CNAME_TARGET}"
+        if settings.PLATFORM_A_RECORD_IP:
+            traffic_hint += f" (or apex A → {settings.PLATFORM_A_RECORD_IP})"
+    elif settings.PLATFORM_A_RECORD_IP:
+        traffic_hint = f" and A {d.domain} → {settings.PLATFORM_A_RECORD_IP}"
     return {
         **_out(d),
         "checks": {
-            "txt_verified": txt_ok,
-            "cname_points": cname_ok,
+            **checks,
             "hint": (
                 "DNS changes can take a few minutes to propagate. "
                 f"Add TXT {('_mood-verify.' + d.domain)} = {d.verification_token}"
-                + (f" and CNAME {d.domain} → {settings.PLATFORM_CNAME_TARGET}." if settings.PLATFORM_CNAME_TARGET else ".")
+                + traffic_hint
+                + "."
             ),
         },
     }
