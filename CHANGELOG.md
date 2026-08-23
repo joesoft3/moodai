@@ -5,6 +5,38 @@ Each entry links the pull request it landed in. Dates are UTC.
 
 ---
 
+## 2026-08-23
+
+### 🪰 Fix — deploy-fly turned red while CI stayed green (PR #54)
+
+The 2026-08-20 Fly deploy of the Cloudflare/CORS fix failed after ~6 min
+(remote build / machine never became healthy), and **nothing since has reached
+the Fly API** — CI's unit gate was green the whole time because it never boots
+the app. Three gaps, three fixes:
+
+- **Reproducible builds.** The image installed `requirements-full.txt` with
+  loose `>=` pins, so the Fly remote builder (cold pip cache) could resolve a
+  different — and broken — dependency world than CI (cached wheels) had
+  validated. New `backend/constraints.txt` pins the exact set that passed
+  694 tests + full boot + `/readyz` + CORS preflight; `Dockerfile.fly`,
+  `backend/Dockerfile` and CI all install with `-c constraints.txt`.
+- **CI now gates on a real boot.** New `scripts/boot-smoke.sh` (wired into
+  `test.yml`) boots uvicorn exactly like the container CMD, waits for
+  `/readyz`, then asserts: healthz ok, readyz `ready:true` with the postgres
+  check ok, CORS preflight **allowed** for `FRONTEND_URL` and **denied** for a
+  foreign origin, `/auth/me` 401s unauthenticated, and `/` redirects to the
+  web app. "Unit green, machine dead" can no longer reach main silently.
+- **Deploy failures are diagnosable.** `deploy-fly.yml` now tees the deploy
+  output and posts the tail — plus `fly status` and boot logs — as
+  **annotations and the step summary**, so the actual error survives even when
+  raw job logs are unreachable. Health-check headroom widened to match
+  reality: `grace_period` 40→60s (alembic + uvicorn boot), `/readyz` probe
+  timeout 10→15s (Neon cold-start measured at 4–15s).
+
+Tests: unchanged suite (694 passed on the pinned set) + new boot smoke.
+
+---
+
 ## 2026-08-20
 
 ### ☁️ Fix — Cloudflare custom domains never reached the origin (522) (PR #52)

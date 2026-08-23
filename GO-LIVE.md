@@ -28,7 +28,11 @@ Run all of it locally; CI (`test.yml`) enforces the first three.
 ```bash
 # backend — every module must import, every test must pass
 find backend/app -name "*.py" -exec python -m py_compile {} +
-cd backend && pytest tests -q                 # 618 passed, 3 skipped
+cd backend && pytest tests -q                 # 694 passed, 3 skipped
+
+# backend — a real machine must boot (this is what the Fly health check gates on;
+# unit tests alone were green on 2026-08-20 while the deploy failed)
+cd .. && PYTHON=python3 scripts/boot-smoke.sh
 
 # web — types must resolve and the production build must succeed
 cd frontend && npx tsc --noEmit && npm run build

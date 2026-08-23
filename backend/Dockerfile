@@ -10,8 +10,9 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-full.txt .
-RUN pip install --no-cache-dir -r requirements-full.txt
+# constraints.txt pins the exact set CI validated (see backend/constraints.txt)
+COPY requirements.txt requirements-full.txt constraints.txt ./
+RUN pip install --no-cache-dir -r requirements-full.txt -c constraints.txt
 
 COPY app ./app
 COPY alembic ./alembic
