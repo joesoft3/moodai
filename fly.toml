@@ -32,7 +32,10 @@ primary_region = "jnb"          # Johannesburg — closest to 🇬🇭 Accra
 
   [[http_service.checks]]
     interval = "30s"
-    grace_period = "40s"   # boot runs alembic first
+    # boot runs alembic first, then uvicorn — and the first /readyz pings a
+    # possibly-cold Neon compute (wake-ups measured at 4-15s). 40s/10s left no
+    # headroom and could fail a deploy whose machine was perfectly healthy.
+    grace_period = "60s"
     method = "GET"
     # Readiness, not liveness: /healthz returns 200 as long as the process is up,
     # so a machine with a dead Postgres kept serving 500s while its check stayed
@@ -41,7 +44,7 @@ primary_region = "jnb"          # Johannesburg — closest to 🇬🇭 Accra
     # NOT provisioned on Fly and are optional by design, so they report
     # "degraded" at 200 instead of failing every machine's health check.
     path = "/readyz"
-    timeout = "10s"        # DB probe on a waking Neon compute > the old 5s liveness budget
+    timeout = "15s"        # DB probe on a waking Neon compute can take 4-15s (measured)
 
 [vm]
   memory = "1gb"           # ffmpeg pays its rent here; 512mb works for chat-only
